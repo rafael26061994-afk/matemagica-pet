@@ -937,78 +937,73 @@ body:not(.dark-mode) .map-node {
 .teacher-panel * { color: inherit; }
 
 
-/* --- Acessibilidade real (sem mudar estrutura) --- */
-button:focus-visible, .operation-card:focus-visible, .level-btn:focus-visible, .main-btn:focus-visible, .setting-btn:focus-visible, .btn-secondary:focus-visible {
-  outline: 3px solid rgba(255, 20, 147, 0.7);
+/* =========================================================================
+   Mentor (avatar + dica) — sem alterar estrutura
+   ========================================================================= */
+.mentor-btn{
+  position: fixed;
+  right: 14px;
+  bottom: 110px;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 2px solid var(--cor-primaria);
+  background: var(--cor-card-claro);
+  box-shadow: 0 6px 14px rgba(0,0,0,0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1500;
+}
+.mentor-btn:focus-visible{
+  outline: 3px solid var(--cor-incentivo);
   outline-offset: 3px;
 }
-
-/* Uma mão: respostas em coluna e botões maiores quando acessibilidade ativa */
-body.accessibility-on .answers-grid {
-  grid-template-columns: 1fr !important;
-}
-body.accessibility-on .answer-option {
-  min-height: 56px;
-  font-size: 1.05rem;
-}
-body.accessibility-on .operation-card, 
-body.accessibility-on .level-btn,
-body.accessibility-on .main-btn,
-body.accessibility-on .setting-btn {
-  min-height: 52px;
-}
-
-/* --- Mentores (Rafael e Ronaldo) --- */
-.mentor-bubble {
-  position: fixed;
-  left: 16px;
-  bottom: 16px;
-  z-index: 1200;
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  max-width: 320px;
-  padding: 12px;
-  border-radius: 14px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  background: var(--cor-card-claro);
-  border: 1px solid var(--cor-borda-clara);
-}
-
-.mentor-bubble.hidden { display: none; }
-
-.mentor-bubble img {
-  width: 44px;
-  height: 44px;
+.mentor-img{
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   object-fit: cover;
-  border: 2px solid var(--cor-primaria);
-  flex: 0 0 auto;
 }
-
-.mentor-title {
-  font-weight: 800;
-  font-size: 0.95em;
-  color: var(--cor-primaria);
-  margin-bottom: 4px;
-}
-
-.mentor-text {
-  font-weight: 600;
-  font-size: 0.95em;
+.mentor-bubble{
+  position: fixed;
+  right: 92px;
+  bottom: 120px;
+  max-width: min(320px, calc(100vw - 130px));
+  background: var(--cor-card-claro);
   color: var(--cor-texto-principal);
+  border: 1px solid var(--cor-borda-clara);
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 0 10px 22px rgba(0,0,0,0.18);
+  z-index: 1500;
+  font-weight: 600;
+  line-height: 1.25;
 }
+.mentor-bubble.hidden{ display:none; }
 
-body.accessibility-on .mentor-bubble {
-  left: 10px;
-  right: 10px;
-  max-width: 520px;
-}
+/* Em acessibilidade (uma mão), sobe o mentor pra não atrapalhar respostas */
+body.accessibility-on .mentor-btn{ bottom: 140px; }
+body.accessibility-on .mentor-bubble{ bottom: 150px; }
 
-@media (max-width: 520px) {
-  .mentor-bubble {
-    left: 10px;
-    right: 10px;
-    max-width: unset;
-  }
+
+/* === Acessibilidade: Zoom de Tela (UI Scale) === */
+:root { --ui-scale: 1; }
+.container { transform: scale(var(--ui-scale)); transform-origin: top center; }
+
+/* === Acessibilidade: Alto Contraste === */
+body.high-contrast {
+  --cor-primaria: #000000;
+  --cor-secundaria: #000000;
+  --cor-sucesso: #000000;
+  --cor-erro: #000000;
+  --cor-incentivo: #000000;
+  --cor-fundo-claro: #ffffff;
+  --cor-card-claro: #ffffff;
+  --cor-texto-principal: #000000;
+  --cor-borda-clara: #000000;
 }
+body.high-contrast .operation-card:hover,
+body.high-contrast .main-btn:hover,
+body.high-contrast .btn-primary:hover { transform: none; }
