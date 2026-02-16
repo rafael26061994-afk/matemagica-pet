@@ -103,6 +103,12 @@
                 <button id="toggle-libras" class="setting-btn toggle-access">
                     <span class="icon">🤟</span> Modo Libras
                 </button>
+                <button id="font-decrease" class="setting-btn toggle-access" title="Diminuir letras">
+                    <span class="icon">A-</span>
+                </button>
+                <button id="font-increase" class="setting-btn toggle-access" title="Aumentar letras">
+                    <span class="icon">A+</span>
+                </button>
             </div>
 
             <div id="creators-section">
@@ -161,6 +167,14 @@
                     <span id="player-xp">XP: 0</span>
                 </div>
             </header>
+
+            <div id="mentor-bubble" class="mentor-bubble hidden" aria-live="polite" aria-atomic="true">
+                <img id="mentor-avatar" src="rafael.png" alt="Mentor" />
+                <div class="mentor-content">
+                    <div class="mentor-title"><span id="mentor-name">Mentor</span></div>
+                    <div id="mentor-text" class="mentor-text">Vamos juntos.</div>
+                </div>
+            </div>
 
             <div id="timer-container" class="time-container">
                 <div id="time-bar" style="width: 100%; background-color: var(--cor-sucesso);"></div>

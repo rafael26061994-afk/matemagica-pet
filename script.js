@@ -22,6 +22,14 @@ const btnVoltarHome = document.querySelectorAll('.btn-voltar-home');
 const toggleVoiceRead = document.getElementById('toggle-voice-read');
 const toggleNightMode = document.getElementById('toggle-night-mode');
 const toggleLibras = document.getElementById('toggle-libras'); 
+const btnFontDecrease = document.getElementById('font-decrease');
+const btnFontIncrease = document.getElementById('font-increase');
+
+// Mentores
+const mentorBubble = document.getElementById('mentor-bubble');
+const mentorAvatar = document.getElementById('mentor-avatar');
+const mentorNameEl = document.getElementById('mentor-name');
+const mentorTextEl = document.getElementById('mentor-text');
 const modeRapidoBtn = document.getElementById('mode-rapido');
 const modeEstudoBtn = document.getElementById('mode-estudo');
 const levelButtons = document.querySelectorAll('.level-btn'); 
@@ -111,6 +119,31 @@ function syncAccessibilityUI() {
     document.body.classList.toggle('accessibility-on', active);
 }
 
+// --- Acessibilidade: tamanho da fonte ---
+const FONT_SCALE_KEY = 'pet_font_scale';
+const FONT_SCALE_MIN = 0.85;
+const FONT_SCALE_MAX = 1.35;
+const FONT_SCALE_STEP = 0.1;
+
+function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
+
+function applyFontScale(scale) {
+    const s = clamp(Number(scale) || 1, FONT_SCALE_MIN, FONT_SCALE_MAX);
+    // Mantém layout, mas aumenta/diminui tudo de forma consistente
+    document.documentElement.style.fontSize = `${Math.round(16 * s)}px`;
+    try { localStorage.setItem(FONT_SCALE_KEY, String(s)); } catch (_) {}
+    return s;
+}
+
+function loadFontScale() {
+    let saved = 1;
+    try {
+        const v = localStorage.getItem(FONT_SCALE_KEY);
+        if (v) saved = Number(v);
+    } catch (_) {}
+    gameState.fontScale = applyFontScale(saved);
+}
+
 function getBaseTimeByLevel(level) {
     switch (level) {
         case 'easy': return 150;   // 15s (ticks de 100ms)
@@ -169,6 +202,67 @@ function getMiniLessonHTML(operation) {
         }
     };
     return lessons[operation] || null;
+}
+
+// --- Mentores (mensagens curtas e respeitosas durante o jogo) ---
+const MENTORS = [
+    { id: 'rafael', name: 'Prof. Rafael', avatar: 'rafael.png' },
+    { id: 'ronaldo', name: 'Prof. Ronaldo', avatar: 'ronaldo.png' }
+];
+
+const mentorPhrases = {
+    correct: [
+        'Ótimo. Continue assim.',
+        'Boa resposta. Vamos para a próxima.',
+        'Perfeito. Você está evoluindo.',
+        'Muito bem. Mantenha o foco.'
+    ],
+    tryAgain: [
+        'Sem problema. Vamos tentar de novo.',
+        'Tudo bem errar. Refaça com calma.',
+        'Você consegue. Tente outra alternativa.',
+        'Respira e tenta mais uma vez.'
+    ],
+    finalWrong: [
+        'Tudo bem. O importante é entender e seguir.',
+        'Não foi dessa vez. Vamos aprender e avançar.',
+        'Sem pressa. O treino certo melhora rápido.'
+    ],
+    encourage: [
+        'Você está no caminho certo.',
+        'Constância vale mais que pressa.',
+        'Foco: uma questão por vez.',
+        'Boa. Continue treinando com calma.'
+    ]
+};
+
+let mentorTimer = null;
+
+function pickMentor() {
+    if (!Number.isInteger(gameState.mentorIndex)) gameState.mentorIndex = 0;
+    const m = MENTORS[gameState.mentorIndex % MENTORS.length];
+    gameState.mentorIndex = (gameState.mentorIndex + 1) % MENTORS.length;
+    return m;
+}
+
+function showMentorMessage(text, mentor = null, duration = 2200) {
+    if (!mentorBubble || !mentorAvatar || !mentorNameEl || !mentorTextEl) return;
+    const m = mentor || pickMentor();
+
+    mentorAvatar.src = m.avatar;
+    mentorNameEl.textContent = m.name;
+    mentorTextEl.textContent = String(text || '').trim();
+    mentorBubble.classList.remove('hidden');
+
+    if (mentorTimer) clearTimeout(mentorTimer);
+    mentorTimer = setTimeout(() => {
+        mentorBubble.classList.add('hidden');
+    }, duration);
+}
+
+function randFrom(arr) {
+    if (!arr || !arr.length) return '';
+    return arr[Math.floor(Math.random() * arr.length)];
 }
 
 function updateLevelScreenMiniLesson(operation) {
@@ -312,6 +406,7 @@ function exibirTela(id) {
     // Esconde o badge de progresso fora da tela de jogo
     if (id !== 'game-screen') {
         try { hideCycleProgressBadge(); } catch (_) {}
+        if (mentorBubble) mentorBubble.classList.add('hidden');
     }
     // Sempre que voltarmos para a home ou resultados, atualiza o botão de treino
     if (id === 'home-screen' || id === 'result-screen') {
@@ -1982,6 +2077,11 @@ function nextQuestion() {
         return;
     }
 gameState.questionNumber++;
+
+    // Mentor: incentivo leve ao longo da sessão
+    if (!gameState.isTrainingErrors && (gameState.questionNumber % 4 === 0)) {
+        showMentorMessage(randFrom(mentorPhrases.encourage));
+    }
     
     // 1. Gerar nova questão (com revisão espaçada mínima)
     const shouldReview = (!gameState.isTrainingErrors) && gameState.isRapidMode && (gameState.questionNumber % 5 === 0) && (gameState.errors && gameState.errors.length > 0);
@@ -2119,6 +2219,11 @@ function handleAnswer(selectedAnswer, selectedButton) {
             'success'
         );
 
+        // Mentor: reforço positivo curto
+        showMentorMessage(
+            (gameState.attemptsThisQuestion === 0) ? randFrom(mentorPhrases.correct) : randFrom(mentorPhrases.encourage)
+        );
+
         if (isTraining) {
             // Avança só quando acertar
             setTimeout(() => {
@@ -2150,6 +2255,7 @@ function handleAnswer(selectedAnswer, selectedButton) {
         // Desabilita só a alternativa errada (evita repetir a mesma)
         if (selectedButton) selectedButton.disabled = true;
         showFeedbackMessage('Ainda não. Tente outra alternativa!', 'warning', 1600);
+        showMentorMessage(randFrom(mentorPhrases.tryAgain));
         return;
     }
 
@@ -2166,6 +2272,9 @@ function handleAnswer(selectedAnswer, selectedButton) {
             : `Quase. ${hint}`;
         showFeedbackMessage(msg, 'warning', 2600);
 
+        // Mentor: incentivo curto (sem repetir a dica inteira)
+        showMentorMessage(randFrom(mentorPhrases.tryAgain));
+
         // Mantém o tempo correndo normalmente (Modo Rápido)
         return;
     }
@@ -2181,6 +2290,9 @@ function handleAnswer(selectedAnswer, selectedButton) {
     });
 
     showFeedbackMessage(`Incorreta. ${getHintForQuestion(q, 2)} Resposta: ${q.answer}.`, 'warning', 3200);
+
+    // Mentor: acolhe o erro e mantém o aluno no jogo
+    showMentorMessage(randFrom(mentorPhrases.finalWrong));
 
     // Próxima questão (sem repor tempo)
     setTimeout(() => {
@@ -2491,6 +2603,22 @@ speak(`Operação ${gameState.currentOperation} selecionada. Agora escolha o ní
         });
     }
 
+    // 7.1 Fonte: aumentar/diminuir (acessibilidade)
+    if (btnFontDecrease) {
+        btnFontDecrease.addEventListener('click', () => {
+            const current = Number(gameState.fontScale) || 1;
+            gameState.fontScale = applyFontScale(current - FONT_SCALE_STEP);
+            showFeedbackMessage('Tamanho da letra diminuído.', 'info', 1400);
+        });
+    }
+    if (btnFontIncrease) {
+        btnFontIncrease.addEventListener('click', () => {
+            const current = Number(gameState.fontScale) || 1;
+            gameState.fontScale = applyFontScale(current + FONT_SCALE_STEP);
+            showFeedbackMessage('Tamanho da letra aumentado.', 'info', 1400);
+        });
+    }
+
     // 8. Lógica para Dark/Light Mode
     if (toggleNightMode) {
          toggleNightMode.addEventListener('click', () => {
@@ -2602,6 +2730,7 @@ document.addEventListener('DOMContentLoaded', () => {
     carregarRanking();
     loadTeacherPrefs();
     initPWA(); 
+    loadFontScale();
     
     // 2. Anexa todos os listeners
     loadMultiplicationConfig();
@@ -2610,7 +2739,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadMultProgressMap();
     loadStudentProfile();
     ensureProfileUI();
-attachEventListeners();
+    attachEventListeners();
     initTeacherPanel();
 
     // Inicializa o badge de progresso (fica oculto até o jogo começar)
