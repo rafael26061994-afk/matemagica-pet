@@ -1,3 +1,42 @@
+
+
+/* =========================================================
+   XP por velocidade (Modo Rápido)
+   - Quanto mais rápido responde, mais XP.
+   - Se responder no fim do tempo, ganha menos.
+   ========================================================= */
+function calcSpeedXP(baseXP, timeLeftUnits, totalUnits, isFastMode){
+    if (!isFastMode) return baseXP;
+    if (!totalUnits || totalUnits <= 0) return baseXP;
+
+    const ratio = Math.max(0, Math.min(1, (timeLeftUnits || 0) / totalUnits)); // 0..1
+    // 1x (fim do tempo) até 3x (muito rápido)
+    const mult = 1 + (2 * ratio);
+    return Math.max(1, Math.round(baseXP * mult));
+}
+
+
+// === Controle de exibição do feedback (rapido x estudo) ===
+window.__feedbackControl = window.__feedbackControl || {
+  timer: null,
+  lastShownAt: 0
+};
+
+function showFeedbackControlled(message, type, durationMs) {
+  // limpa timer anterior
+  try { if (window.__feedbackControl.timer) clearTimeout(window.__feedbackControl.timer); } catch (e) {}
+  showFeedbackMessage(message, type, durationMs);
+  // guarda timer (showFeedbackMessage já agenda hide, mas guardamos referência conceitual)
+  window.__feedbackControl.lastShownAt = Date.now();
+}
+
+function hideFeedbackNow() {
+  if (!feedbackMessageElement) return;
+  try { if (window.__feedbackControl.timer) clearTimeout(window.__feedbackControl.timer); } catch (e) {}
+  feedbackMessageElement.classList.remove('show');
+  setTimeout(() => feedbackMessageElement.classList.add('hidden'), 50);
+}
+
 // --- VARIÁVEIS DE ESTADO GLOBAL E CACHE DE ELEMENTOS ---
 const screens = document.querySelectorAll('.screen');
 const questionText = document.getElementById('question-text');
@@ -7,10 +46,87 @@ const playerScoreElement = document.getElementById('player-score');
 const playerXPElement = document.getElementById('player-xp');
 const questionCounter = document.getElementById('question-counter');
 const feedbackMessageElement = document.getElementById('feedback-message');
+const feedbackCloseBtn = document.getElementById('feedback-close');
+
+// Botão X para fechar o balão de dica/feedback
+if (typeof feedbackCloseBtn !== 'undefined' && feedbackCloseBtn) {
+    feedbackCloseBtn.addEventListener('click', () => {
+        if (typeof hideFeedbackNow === 'function') {
+            hideFeedbackNow();
+        } else if (typeof hideFeedbackMessage === 'function') {
+            hideFeedbackMessage();
+        } else if (feedbackMessageElement) {
+            feedbackMessageElement.classList.remove('show');
+            setTimeout(() => feedbackMessageElement.classList.add('hidden'), 50);
+        }
+        // em modo estudo, se fechar manualmente, não força reabrir até próximo erro
+        window.__keepFeedbackUntilNextAnswer = false;
+    });
+}
 const alertSound = document.getElementById('alert-sound');
 const librasAlert = document.getElementById('libras-alert');
 // Remover mensagem visual de tempo baixo (mantém apenas som aos 5s finais)
 if (librasAlert) librasAlert.textContent = '';
+// ✅ Evita que a última alternativa fique com 'foco' (parecendo selecionada) na próxima questão
+// Isso impede o browser de manter o botão focado após o clique/toque.
+answerOptions.forEach((btn) => {
+    // Impede o browser de manter foco/realce após toque/click
+    btn.addEventListener('pointerdown', (e) => e.preventDefault());
+    btn.addEventListener('mousedown', (e) => e.preventDefault());
+    btn.addEventListener('touchstart', () => setTimeout(clearAnswerFocus, 0), { passive: true });
+
+    // Alguns browsers mantêm realce até o "end"; limpamos novamente.
+    btn.addEventListener('pointerup', () => setTimeout(clearAnswerFocus, 0));
+    btn.addEventListener('mouseup', () => setTimeout(clearAnswerFocus, 0));
+    btn.addEventListener('touchend', () => setTimeout(clearAnswerFocus, 0), { passive: true });
+});
+
+let __focusSink = null;
+function __ensureFocusSink() {
+    if (__focusSink) return;
+    try {
+        const sink = document.createElement('button');
+        sink.type = 'button';
+        sink.tabIndex = -1;
+        sink.setAttribute('aria-hidden', 'true');
+        sink.style.position = 'fixed';
+        sink.style.left = '-9999px';
+        sink.style.top = '0';
+        sink.style.width = '1px';
+        sink.style.height = '1px';
+        sink.style.opacity = '0';
+        sink.style.pointerEvents = 'none';
+        document.body.appendChild(sink);
+        __focusSink = sink;
+    } catch (e) {}
+}
+
+function clearAnswerFocus() {
+    __ensureFocusSink();
+
+    // 1) Tenta desfocar o elemento ativo atual
+    try {
+        if (document.activeElement && typeof document.activeElement.blur === 'function') {
+            document.activeElement.blur();
+        }
+    } catch (e) {}
+
+    // 2) Remove foco de cada alternativa
+    answerOptions.forEach((b) => {
+        try {
+            if (b && typeof b.blur === 'function') b.blur();
+        } catch (e) {}
+    });
+
+    // 3) Força o navegador a mover o foco para um "sink" invisível (resolve casos persistentes em alguns browsers)
+    try {
+        if (__focusSink && typeof __focusSink.focus === 'function') {
+            __focusSink.focus();
+            __focusSink.blur();
+        }
+    } catch (e) {}
+}
+
 
 
 // Cache de botões e telas
@@ -21,6 +137,9 @@ const btnShowAnswer = document.getElementById('btn-show-answer');
 const btnVoltarHome = document.querySelectorAll('.btn-voltar-home');
 const toggleVoiceRead = document.getElementById('toggle-voice-read');
 const toggleNightMode = document.getElementById('toggle-night-mode');
+const layoutAutoBtn = document.getElementById('layout-auto');
+const layoutMobileBtn = document.getElementById('layout-mobile');
+const layoutDesktopBtn = document.getElementById('layout-desktop');
 const toggleLibras = document.getElementById('toggle-libras'); 
 const modeRapidoBtn = document.getElementById('mode-rapido');
 const modeEstudoBtn = document.getElementById('mode-estudo');
@@ -261,6 +380,170 @@ function speakSequence(texts) {
 }
 
 /** Monta textos para leitura de voz: 1) pergunta 2) alternativas (1–4). */
+
+// === Feedback pedagógico inteligente (explicativo) ===
+function fmtNum(n){ return (typeof n==='number' && Number.isFinite(n)) ? n : Number(n); }
+
+
+
+function explainAnswer(operation, num1, num2, correct, userAnswer) {
+    const a = Number(num1), b = Number(num2);
+
+    switch (operation) {
+
+        // ✅ BASE (mantida): completar para a próxima dezena
+        case 'addition': {
+            const falta = (10 - (a % 10)) % 10;
+            if (falta > 0 && falta < 10) {
+                const a2 = a + falta;
+                return `Jeito fácil: complete ${a} até ${a2} (faltam ${falta}). Faça ${a2} + ${b} e depois tire ${falta}.`;
+            }
+            return `Some devagar: ${a} + ${b}. Comece pelo mais fácil e depois complete.`;
+        }
+
+        // ➖ Subtração: ir até uma dezena “redonda” e depois voltar
+        case 'subtraction': {
+            // Ex.: 42 - 17 -> 42 - 2 = 40, depois 40 - 15
+            const faltaParaBaixo = a % 10; // quanto falta para descer até a dezena
+            if (faltaParaBaixo > 0 && b > faltaParaBaixo) {
+                const a2 = a - faltaParaBaixo;
+                const b2 = b - faltaParaBaixo;
+                return `Jeito fácil: leve ${a} até ${a2} (tire ${faltaParaBaixo}). Depois faça ${a2} − ${b2}.`;
+            }
+            // Se b é pequeno, tira direto
+            return `Jeito fácil: tire em partes. Ex.: tire ${b%10} e depois tire as dezenas.`;
+        }
+
+        // ✖️ Multiplicação: quebrar o número e somar parcelas iguais
+        case 'multiplication': {
+            // Ex.: 6×7 = 6×5 + 6×2
+            if (b > 5) {
+                const parte = 5;
+                const resto = b - parte;
+                return `Jeito fácil: quebre ${b}. Faça ${a}×${parte} e depois ${a}×${resto}. Depois some as duas partes.`;
+            }
+            return `Jeito fácil: repita a soma. Ex.: ${a}×${b} é somar ${a} (${b} vezes).`;
+        }
+
+        // ➗ Divisão: “testa a tabuada” até chegar perto sem passar
+        case 'division': {
+            return `Dividir é REPARTIR em partes iguais. Pergunta: “se eu tenho ${a} e vou repartir em ${b} partes, quanto fica em cada parte?”`;
+        }
+
+        // ^ Potenciação: “vezes ele mesmo” (b vezes) e começar pequeno
+        case 'potenciacao': {
+            if (b <= 2) {
+                return `Jeito fácil: ${a}^${b} é ${a}×${a} (se for 2).`;
+            }
+            return `Jeito fácil: é ${a} vezes ele mesmo ${b} vezes. Comece: ${a}×${a} e vá multiplicando de novo até completar.`;
+        }
+
+        // √ Radiciação: procurar o quadrado perfeito (tabuada do “vezes ele mesmo”)
+        case 'radiciacao': {
+            const chute = Math.round(Math.sqrt(a));
+            const p = chute * chute;
+            if (p === a) {
+                return `Jeito fácil: pense “qual número vezes ele mesmo dá ${a}?”`;
+            }
+            return `Jeito fácil: teste: 5×5=25, 6×6=36, 7×7=49… até chegar em ${a}.`;
+        }
+
+        default:
+            return `Tente de novo com calma.`;
+    }
+}
+
+// === Modo Estudo: explicação passo a passo (tipo professor) ===
+function explainSteps(operation, num1, num2) {
+    const a = Number(num1), b = Number(num2);
+    const join = (arr) => arr.filter(Boolean).join('  |  ');
+
+    switch (operation) {
+        case 'addition': {
+            const falta = (10 - (a % 10)) % 10;
+            if (falta > 0 && falta < 10) {
+                const a2 = a + falta;
+                return join([
+                    `Passo 1: complete ${a} até ${a2} (faltam ${falta})`,
+                    `Passo 2: faça ${a2} + ${b}`,
+                    `Passo 3: tire ${falta}`,
+                    `Pronto`
+                ]);
+            }
+            return join([`Passo 1: some partes fáceis`, `Passo 2: complete`, `Pronto`]);
+        }
+        case 'subtraction': {
+            const faltaParaBaixo = a % 10;
+            if (faltaParaBaixo > 0 && b > faltaParaBaixo) {
+                const a2 = a - faltaParaBaixo;
+                const b2 = b - faltaParaBaixo;
+                return join([
+                    `Passo 1: leve ${a} até ${a2} (tire ${faltaParaBaixo})`,
+                    `Passo 2: faça ${a2} − ${b2}`,
+                    `Pronto`
+                ]);
+            }
+            return join([`Passo 1: tire unidades`, `Passo 2: tire dezenas`, `Pronto`]);
+        }
+        case 'multiplication': {
+            if (b > 5) {
+                const parte = 5, resto = b - 5;
+                return join([`Passo 1: quebre ${b} em 5 + ${resto}`, `Passo 2: ${a}×5`, `Passo 3: ${a}×${resto}`, `Passo 4: some`, `Pronto`]);
+            }
+            return join([`Passo 1: soma repetida`, `Passo 2: some ${a} (${b} vezes)`, `Pronto`]);
+        }
+        case 'division': {
+            return join([
+                `Passo 1: dividir é REPARTIR em partes iguais.`,
+                `Passo 2: imagine ${a} itens para ${b} pessoas (ou caixas).`,
+                `Passo 3: vá distribuindo 1 para cada pessoa, repetindo as voltas.`,
+                `Passo 4: quando acabar, veja quantos cada um recebeu.`,
+                `Passo 5: se sobrar algum item, isso é o RESTO.`
+            ]);
+        }
+        case 'potenciacao': {
+            return join([`Passo 1: é multiplicar ${a} por ele mesmo`, `Passo 2: faça isso ${b} vezes`, `Pronto`]);
+        }
+        case 'radiciacao': {
+            return join([`Passo 1: teste 1×1, 2×2, 3×3...`, `Passo 2: quando der ${a}, achou`, `Pronto`]);
+        }
+        default:
+            return `Passo 1: tente de novo com calma.`;
+    }
+}
+
+
+
+
+
+
+function showPedagogicalFeedback(isCorrect, operation, q, selectedValue) {
+    // Regras:
+    // - Modo Rápido: 15s ou até acabar o tempo ou acertar/seguir para a próxima.
+    // - Modo Estudo: fica visível até o usuário responder novamente.
+    const isRapid = !!gameState.isRapidMode;
+    const DURATION_RAPID = 15000;
+
+    // Mensagem curta e útil (sem revelar resposta correta)
+    if (isCorrect) {
+        // No rápido, sucesso pode ser curto; no estudo também pode ser curto
+        showFeedbackControlled('✅ Correto! Boa! Continue.', 'success', isRapid ? 2500 : 2500);
+        return;
+    }
+
+    // Dica de raciocínio (para acertar na próxima tentativa)
+    const msg = isRapid ? explainAnswer(operation, q?.num1, q?.num2, q?.answer, selectedValue) : explainSteps(operation, q?.num1, q?.num2);
+
+    if (isRapid) {
+        showFeedbackControlled('💡 Dica rápida: ' + msg, 'incentive', DURATION_RAPID);
+    } else {
+        // Estudo: mantém até próxima resposta (usamos um duration bem alto e escondemos manualmente no próximo clique)
+        showFeedbackControlled('👩‍🏫 Passo a passo: ' + msg, 'incentive', 600000); // 10 min (será escondido antes)
+        window.__keepFeedbackUntilNextAnswer = true;
+    }
+}
+
+
 function buildVoiceTextsForQuestion(questionObj) {
     if (!questionObj) return [];
 
@@ -294,11 +577,13 @@ function announceCurrentQuestion() {
 
 /** Exibe mensagens de feedback */
 function showFeedbackMessage(message, type, duration = 3000) {
+    const feedbackTextElement = document.getElementById('feedback-text');
+
     if (!feedbackMessageElement) return;
 
     feedbackMessageElement.className = 'feedback-message hidden';
     feedbackMessageElement.classList.add(type);
-    feedbackMessageElement.textContent = message;
+    if (feedbackTextElement) { feedbackTextElement.textContent = message; } else { feedbackMessageElement.textContent = message; }
 
     setTimeout(() => {
         feedbackMessageElement.classList.remove('hidden');
@@ -582,7 +867,12 @@ function carregarXP() {
 }
 function atualizarXP(amount) {
     gameState.xp += amount;
-    playerXPElement.textContent = `XP: ${gameState.xp}`;
+    
+    // Soma XP ganho nesta rodada (para relatório final)
+    if (gameState && gameState.isGameActive) {
+        gameState.xpGainedRound = (Number(gameState.xpGainedRound) || 0) + amount;
+    }
+playerXPElement.textContent = `XP: ${gameState.xp}`;
     localStorage.setItem('matemagica_xp', gameState.xp);
 }
 
@@ -1165,6 +1455,7 @@ function startErrorTraining() {
     gameState.acertos = 0;
     gameState.erros = 0;
     gameState.isGameActive = true;
+    gameState.xpGainedRound = 0;
     gameState.isTrainingErrors = false;
     gameState.attemptsThisQuestion = 0;
     if (btnShowAnswer) btnShowAnswer.disabled = false;
@@ -1190,7 +1481,7 @@ function nextTrainingQuestion() {
     questionText.textContent = q.question;
 
     // Carrega opções
-    answerOptions.forEach((btn, i) => {
+answerOptions.forEach((btn, i) => {
         btn.classList.remove('correct', 'wrong');
         btn.disabled = false;
         const numEl = btn.querySelector('.option-number');
@@ -1198,6 +1489,9 @@ function nextTrainingQuestion() {
         if (numEl) numEl.textContent = `${i + 1})`;
         if (txtEl) txtEl.textContent = q.options[i];
     });
+
+    // ✅ Garante que nenhuma alternativa venha "selecionada" (com foco)
+    clearAnswerFocus();
 
     // Progresso do ciclo: reusa badge existente
     updateCycleProgressUI();
@@ -1767,7 +2061,19 @@ function startGame(operation, level) {
     gameState.acertos = 0;
     gameState.erros = 0;
     
-    gameState.totalQuestions = gameState.isRapidMode ? 20 : Infinity;
+    // Quantidade de questões (Modo Rápido) por operação
+    if (gameState.isRapidMode) {
+        if (operation === 'addition' || operation === 'subtraction' || operation === 'division') {
+            gameState.totalQuestions = 100;
+        } else if (operation === 'potenciacao' || operation === 'radiciacao') {
+            gameState.totalQuestions = 30;
+        } else {
+            // Padrão (caso tenha outras operações no futuro)
+            gameState.totalQuestions = 20;
+        }
+    } else {
+        gameState.totalQuestions = Infinity;
+    }
 
     // --- Configuração especial: Tabuada da Multiplicação (por níveis) ---
 if (operation === 'multiplication' && gameState.multiplication && (gameState.multiplication.mode === 'direct' || gameState.multiplication.mode === 'trail')) {
@@ -1917,6 +2223,9 @@ gameState.questionNumber++;
         btn.classList.remove('correct', 'wrong');
         btn.disabled = false;
     });
+    // ✅ Garante que nenhuma alternativa venha "selecionada" (com foco)
+    clearAnswerFocus();
+
     // 4. Atualizar Mentor (dicas)
     updateMentorForCurrentQuestion();
 
@@ -1945,6 +2254,13 @@ function saveError(question, userAnswer) {
 
 
 function handleAnswer(selectedAnswer, selectedButton) {
+
+    // ✅ Modo Estudo: ao responder novamente, esconde a dica anterior
+    if (window.__keepFeedbackUntilNextAnswer) {
+        window.__keepFeedbackUntilNextAnswer = false;
+        hideFeedbackNow();
+    }
+
     if (!gameState.isGameActive) return;
     if (gameState.answerLocked) return;
     if (selectedButton && selectedButton.disabled) return;
@@ -1972,6 +2288,13 @@ function handleAnswer(selectedAnswer, selectedButton) {
     if (selectedButton) {
         selectedButton.classList.remove('correct', 'wrong');
         selectedButton.classList.add(isCorrect ? 'correct' : 'wrong');
+    // ✅ Feedback explicativo pedagógico
+    showPedagogicalFeedback(isCorrect, gameState.currentOperation, gameState.currentQuestion, selectedAnswer);
+
+
+        // ✅ IMPORTANTE: tira o foco para não \"ficar marcado\" na próxima questão
+        selectedButton.blur();
+        clearAnswerFocus();
     }
 
     if (isCorrect) {
@@ -1992,7 +2315,15 @@ function handleAnswer(selectedAnswer, selectedButton) {
         const baseGain = gameState.isRapidMode ? 20 * gameState.questionNumber : 10;
         const multiplier = (gameState.attemptsThisQuestion === 0) ? 1 : 0.7;
         const scoreGain = Math.round(baseGain * multiplier);
-        const xpGain = gameState.isRapidMode ? 5 : 2;
+        // XP (Modo Rápido): quanto mais rápido, mais XP
+        const xpBase = gameState.isRapidMode ? 5 : 2;
+        let xpGain = xpBase;
+        if (gameState.isRapidMode) {
+            xpGain = calcSpeedXP(xpBase, Number(gameState.timeLeft) || 0, Number(gameState.maxTime) || 0, true);
+            // Se precisou de mais de 1 tentativa, reduz um pouco o XP (mantém a regra de "acertar de primeira vale mais")
+            if (gameState.attemptsThisQuestion > 0) xpGain = Math.max(1, Math.round(xpGain * 0.7));
+        }
+
 
         gameState.score += scoreGain;
         atualizarXP(xpGain);
@@ -2008,12 +2339,8 @@ function handleAnswer(selectedAnswer, selectedButton) {
             librasAlert.classList.add('hidden');
         }
 
-        showFeedbackMessage(
-            (gameState.attemptsThisQuestion === 0) ? 'RESPOSTA CORRETA!' : 'CORRETA (após tentar de novo)!',
-            'success'
-        );
-
-        if (isTraining) {
+        // (feedback substituído por showPedagogicalFeedback)
+    if (isTraining) {
             // Avança só quando acertar
             setTimeout(() => {
                 gameState.trainingIndex++;
@@ -2043,16 +2370,15 @@ function handleAnswer(selectedAnswer, selectedButton) {
     if (isTraining) {
         // Desabilita só a alternativa errada (evita repetir a mesma)
         if (selectedButton) selectedButton.disabled = true;
-        showFeedbackMessage('Ainda não. Tente outra alternativa!', 'warning', 1600);
-        return;
+        // (feedback substituído por showPedagogicalFeedback)
+    return;
     }
 
     // No jogo normal: permite refazer 1 vez (2 tentativas no total)
     if (gameState.attemptsThisQuestion < gameState.maxAttemptsPerQuestion) {
         if (selectedButton) selectedButton.disabled = true; // não deixa clicar de novo na mesma
-        showFeedbackMessage('Quase! Tente outra alternativa.', 'warning', 1600);
-
-        // Mantém o tempo correndo normalmente (não para o timer)
+        // (feedback substituído por showPedagogicalFeedback)
+    // Mantém o tempo correndo normalmente (não para o timer)
         if (gameState.isRapidMode) {
             // nada a fazer; o timer já está rodando
         }
@@ -2069,8 +2395,7 @@ function handleAnswer(selectedAnswer, selectedButton) {
         btn.disabled = true;
     });
 
-    showFeedbackMessage('RESPOSTA INCORRETA!', 'warning', 1800);
-
+    // (feedback substituído por showPedagogicalFeedback)
     // Próxima questão (sem repor tempo)
     setTimeout(() => {
         if (gameState.isRapidMode) startTimer();
@@ -2088,7 +2413,7 @@ function endGame() {
     if (gameState.mentor) gameState.mentor.rapidHintShownThisQuestion = false;
 
     // 1. Calcular XP Ganhos na Rodada (apenas para exibição)
-    const xpGained = gameState.acertos * (gameState.isRapidMode ? 5 : 2) - gameState.erros * 2;
+    const xpGained = Number(gameState.xpGainedRound) || 0;
     
     // 2. Atualizar UI de Resultados
     document.getElementById('final-score').textContent = gameState.score;
@@ -2202,7 +2527,8 @@ function startTimer() {
             clearInterval(gameState.timer);
             playAlertSound();
             showFeedbackMessage("Tempo esgotado! Game Over!", 'error', 3000);
-            endGame(); 
+                hideFeedbackNow();
+    endGame(); 
             return;
         }
         
@@ -2395,15 +2721,61 @@ speak(`Operação ${gameState.currentOperation} selecionada. Agora escolha o ní
         });
     }
 
-    // 8. Lógica para Dark/Light Mode
+    // 8. Lógica para Dark/Light Mode (sem duplicar rótulos/ícones)
     if (toggleNightMode) {
-         toggleNightMode.addEventListener('click', () => {
-            document.body.classList.toggle('light-mode');
-            document.body.classList.toggle('dark-mode');
-            const isDarkMode = document.body.classList.contains('dark-mode');
-            toggleNightMode.querySelector('.icon').textContent = isDarkMode ? '☀️' : '🌙';
+        const renderThemeButton = (isDark) => {
+            // Zera o conteúdo para evitar duplicação de "Modo Noite"/"Modo Dia"
+            toggleNightMode.innerHTML = `<span class="icon">${isDark ? '☀️' : '🌙'}</span> ${isDark ? 'Modo Dia' : 'Modo Noite'}`;
+        };
+
+        const setTheme = (theme) => {
+            const isDark = theme === 'dark';
+            document.body.classList.toggle('dark-mode', isDark);
+            document.body.classList.toggle('light-mode', !isDark);
+            renderThemeButton(isDark);
+            try { localStorage.setItem('pet_theme', isDark ? 'dark' : 'light'); } catch(e) {}
+        };
+
+        toggleNightMode.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            const isDark = document.body.classList.contains('dark-mode');
+            setTheme(isDark ? 'light' : 'dark');
         });
-    }
+
+        function applyThemeFromStorage() {
+            let theme = 'light';
+            try { theme = localStorage.getItem('pet_theme') || 'light'; } catch(e) {}
+            setTheme(theme);
+        }
+function applyLayout(layout){
+            document.body.classList.remove('layout-mobile','layout-desktop');
+            if (layout === 'mobile') document.body.classList.add('layout-mobile');
+            if (layout === 'desktop') document.body.classList.add('layout-desktop');
+
+            const setActive = (btn, on) => btn && btn.classList.toggle('active', !!on);
+            setActive(layoutAutoBtn, layout === 'auto');
+            setActive(layoutMobileBtn, layout === 'mobile');
+            setActive(layoutDesktopBtn, layout === 'desktop');
+
+            try { localStorage.setItem('pet_layout', layout); } catch(e) {}
+        }
+
+        function applyLayoutFromStorage(){
+            let layout = 'auto';
+            try { layout = localStorage.getItem('pet_layout') || 'auto'; } catch(e) {}
+            if (!['auto','mobile','desktop'].includes(layout)) layout = 'auto';
+            applyLayout(layout);
+        }
+
+        // Listeners de layout
+        if (layoutAutoBtn) layoutAutoBtn.addEventListener('click', () => applyLayout('auto'));
+        if (layoutMobileBtn) layoutMobileBtn.addEventListener('click', () => applyLayout('mobile'));
+        if (layoutDesktopBtn) layoutDesktopBtn.addEventListener('click', () => applyLayout('desktop'));
+
+        // Aplica preferências ao carregar
+        applyThemeFromStorage();
+        applyLayoutFromStorage();
+        }
 
     // 9. Botões de Ação do Jogo (Estender Tempo / Ajuda)
     btnExtendTime.addEventListener('click', () => {
@@ -2760,6 +3132,31 @@ attachEventListeners();
     // Inicializa o badge de progresso (fica oculto até o jogo começar)
     ensureCycleProgressBadge();
     
+    
+    // --- Rodapé legal (aparece apenas ao final da rolagem) ---
+    try {
+        const __PET_LEGAL_HTML = `
+          <div class="pet-legal-footer" role="contentinfo">
+            <small>
+              © 2026 Rafael Oliveira e Ronaldo Soares. Todos os direitos reservados.<br/>
+              PET — Programa de Estudo da Tabuada é um projeto educacional institucional vinculado à Escola Municipal Vereador José Ferreira de Aguiar (Contagem/MG).<br/>
+              Uso autorizado exclusivamente para fins educacionais. É vedada a reprodução, redistribuição, modificação ou exploração comercial, total ou parcial, sem autorização prévia e expressa de ambos os autores.<br/>
+              É vedada a supressão de créditos/avisos de autoria e qualquer apresentação do projeto como de terceiros.
+            </small>
+          </div>
+        `;
+
+        document.querySelectorAll('.screen').forEach((screenEl) => {
+            if (!screenEl) return;
+            if (screenEl.querySelector('.pet-legal-footer')) return;
+            const holder = document.createElement('div');
+            holder.innerHTML = __PET_LEGAL_HTML.trim();
+            const footerEl = holder.firstElementChild;
+            if (footerEl) screenEl.appendChild(footerEl);
+        });
+    } catch (e) {}
+
+
     // 3. Atualiza o estado inicial do botão de Treinar Erros
     updateErrorTrainingButton();
 

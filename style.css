@@ -324,10 +324,17 @@ header {
     color: var(--cor-texto-principal);
 }
 
-.btn-answer:hover:not(:disabled) {
+@media (hover: hover) and (pointer: fine) {
+  .btn-answer:hover:not(:disabled) {
     background-color: #e9ecef;
+  }
 }
-
+@media (hover: none) and (pointer: coarse) {
+  /* Evita "hover preso" no celular após tocar */
+  .btn-answer:hover:not(:disabled) {
+    background-color: transparent;
+  }
+}
 .btn-answer.correct {
     background-color: var(--cor-sucesso);
     color: white;
@@ -1007,3 +1014,170 @@ body.high-contrast {
 body.high-contrast .operation-card:hover,
 body.high-contrast .main-btn:hover,
 body.high-contrast .btn-primary:hover { transform: none; }
+
+
+/* =========================================================
+   Layout selector (Auto / Celular / PC)
+   ========================================================= */
+.layout-toggle{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-top: 8px;
+}
+.layout-label{
+    font-weight:600;
+    opacity:.9;
+}
+.layout-btn{
+    border:2px solid var(--cor-borda);
+    background: var(--cor-fundo-card);
+    color: var(--cor-texto);
+    padding: 8px 12px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-weight: 700;
+    transition: transform .05s ease, filter .15s ease;
+}
+.layout-btn:hover{ filter: brightness(1.02); }
+.layout-btn:active{ transform: scale(.98); }
+.layout-btn.active{
+    border-color: var(--cor-primaria);
+    box-shadow: 0 0 0 3px rgba(0,0,0,0.06);
+}
+
+/* Força largura do app conforme escolha */
+body.layout-mobile .container{ max-width: 420px; }
+body.layout-desktop .container{ max-width: 920px; }
+
+/* Ajustes no desktop para aproveitar espaço */
+body.layout-desktop .answer-option{ font-size: 1.05rem; }
+body.layout-desktop #question-text{ font-size: 1.35rem; }
+
+
+/* Evita realce persistente por foco */
+.btn-answer:focus{ outline: none; }
+.btn-answer:focus-visible{ outline: 3px solid rgba(0,0,0,0.15); outline-offset: 3px; }
+
+
+
+/* === FIX: Alternativas sempre com a mesma cor (Dia = branco, Noite = preto) === */
+/* Suporta body.dark-mode, body.dark, .theme-dark (qualquer que exista no projeto) */
+
+:root{
+  --answer-bg-day: #ffffff;
+  --answer-bg-night: #000000;
+  --answer-text-day: #111111;
+  --answer-text-night: #ffffff;
+  --answer-border-day: rgba(0,0,0,.18);
+  --answer-border-night: rgba(255,255,255,.22);
+}
+
+/* Estado padrão (modo dia) */
+.answer-option,
+.answer-option:visited{
+  background: var(--answer-bg-day) !important;
+  color: var(--answer-text-day) !important;
+  border-color: var(--answer-border-day) !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Noite (tenta cobrir as classes mais comuns) */
+body.dark-mode .answer-option,
+body.dark .answer-option,
+body.theme-dark .answer-option,
+html.dark-mode body .answer-option,
+html.dark body .answer-option{
+  background: var(--answer-bg-night) !important;
+  color: var(--answer-text-night) !important;
+  border-color: var(--answer-border-night) !important;
+}
+
+/* NÃO mudar cor em hover/active/focus — mantém sempre igual */
+@media (hover:hover){
+  .answer-option:hover{
+    background: inherit !important;
+    color: inherit !important;
+  }
+}
+.answer-option:active,
+.answer-option:focus,
+.answer-option:focus-visible{
+  background: inherit !important;
+  color: inherit !important;
+  outline: 2px solid rgba(0,153,255,.35);
+  outline-offset: 2px;
+}
+
+/* Mesmo quando estiver correta/errada, manter fundo igual; use apenas borda/sombra */
+.answer-option.correct,
+.answer-option.wrong{
+  background: inherit !important;
+  color: inherit !important;
+}
+
+/* Se existirem regras que pintam correct/wrong, reforça só borda */
+.answer-option.correct{ box-shadow: 0 0 0 2px rgba(0,200,83,.45) inset; }
+.answer-option.wrong{ box-shadow: 0 0 0 2px rgba(255,82,82,.45) inset; }
+
+/* Mobile: evita “hover preso” alterar aparência */
+@media (hover:none){
+  .answer-option:hover{
+    background: inherit !important;
+    color: inherit !important;
+  }
+}
+
+
+/* FIX: feedback wrap */
+.feedback-message {
+  white-space: normal;
+  line-height: 1.3;
+}
+
+
+/* FIX: feedback wrap */
+#feedback-message, .feedback-message {
+  white-space: normal;
+  line-height: 1.3;
+}
+
+
+
+
+
+
+/* FIX: botão X no balão (sem alterar layout/tamanho do balão) */
+.feedback-close{
+  position:absolute;
+  top:8px;
+  right:10px;
+  border:none;
+  background:transparent;
+  font-size:22px;
+  line-height:1;
+  cursor:pointer;
+  padding:4px 6px;
+  border-radius:8px;
+  z-index:2;
+}
+.feedback-close:active{ transform:scale(0.96); }
+
+/* =========================================================================
+   10. Rodapé legal (aparece apenas ao final da rolagem)
+   ========================================================================= */
+
+.pet-legal-footer{
+    margin-top: 28px;
+    padding-top: 14px;
+    border-top: 1px solid var(--cor-borda-clara);
+    text-align: center;
+    font-size: 0.75em;
+    line-height: 1.35;
+    color: var(--cor-texto-principal);
+    opacity: 0.78;
+}
+.pet-legal-footer small{
+    display: block;
+}
