@@ -50,7 +50,7 @@ const feedbackCloseBtn = document.getElementById('feedback-close');
 
 // Botão X para fechar o balão de dica/feedback
 if (typeof feedbackCloseBtn !== 'undefined' && feedbackCloseBtn) {
-    feedbackCloseBtn.addEventListener('click', () => {
+    feedbackCloseBtn?.addEventListener('click', () => {
         if (typeof hideFeedbackNow === 'function') {
             hideFeedbackNow();
         } else if (typeof hideFeedbackMessage === 'function') {
@@ -71,7 +71,7 @@ if (librasAlert) librasAlert.textContent = '';
 // Isso impede o browser de manter o botão focado após o clique/toque.
 answerOptions.forEach((btn) => {
     // Impede o browser de manter foco/realce após toque/click
-    btn.addEventListener('pointerdown', (e) => e.preventDefault());
+    btn.addEventListener('pointerdown', (e) => { try { if (e && e.pointerType === 'mouse') e.preventDefault(); } catch (_) {} });
     btn.addEventListener('mousedown', (e) => e.preventDefault());
     btn.addEventListener('touchstart', () => setTimeout(clearAnswerFocus, 0), { passive: true });
 
@@ -145,6 +145,23 @@ const modeRapidoBtn = document.getElementById('mode-rapido');
 const modeEstudoBtn = document.getElementById('mode-estudo');
 const levelButtons = document.querySelectorAll('.level-btn'); 
 
+// Melhor compatibilidade de toque: garante ativação em alguns celulares (evita "não clica")
+const __petTouchClickLock = new WeakMap();
+function ensureTouchClick(el){
+    try {
+        if (!el || !el.addEventListener) return;
+        el.addEventListener('touchend', (e) => {
+            const last = __petTouchClickLock.get(el) || 0;
+            const now = Date.now();
+            if (now - last < 350) return;
+            __petTouchClickLock.set(el, now);
+            try { e.preventDefault(); } catch (_) {}
+            try { el.click(); } catch (_) {}
+        }, { passive: false });
+    } catch (_) {}
+}
+
+
 // Badge flutuante: Progresso do ciclo (Tabuada)
 let cycleProgressBadge = null;
 
@@ -194,18 +211,18 @@ const gameState = {
     trainingIndex: 0,
 
 
-    // Config da Tabuada (Multiplicação 0–20)
+    // Config da Tabuada (Multiplicação 1–20)
     multiplication: {
         mode: 'trail',      // 'trail' | 'direct'
         tabuada: 7,
-        multMin: 0,
-        multMax: 20,
+        multMin: 1,
+        multMax: 10,
         // Faixa de tabuadas por nível (Multiplicação)
-        trailMin: 0,
-        trailMax: 20,
+        trailMin: 6,
+        trailMax: 10,
         // Chave inclui faixa de tabuadas e multiplicadores
-        trailRangeKey: '0-20|0-20',
-        // Trilha: ordem embaralhada de TODAS as contas da faixa (ex.: 0–5 com ×0–10)
+        trailRangeKey: '6-10|1-10',
+        // Trilha: ordem embaralhada de TODAS as contas da faixa (ex.: 1–5 com ×1–10)
         // Formato: [[tabuada, multiplicador], ...]
         trailPairs: [],
         trailPairIndex: 0,
@@ -223,6 +240,10 @@ const gameState = {
 // === ACESSIBILIDADE EXTRA: ZOOM E CONTRASTE (persistente) ===
 const UI_SCALE_KEY = 'pet_ui_scale_v1';
 const UI_CONTRAST_KEY = 'pet_ui_contrast_v1';
+const UI_DYSLEXIA_KEY = 'pet_ui_dyslexia_v1';
+const UI_CALM_KEY = 'pet_ui_calm_v1';
+const UI_EXTRA_TIME_KEY = 'pet_ui_extra_time_v1';
+const UI_VIBRATE_KEY = 'pet_ui_vibrate_v1';
 
 function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
 
@@ -246,8 +267,36 @@ function loadAccessibilityPrefs() {
         if (savedScale) applyUiScale(savedScale);
         const savedContrast = localStorage.getItem(UI_CONTRAST_KEY);
         if (savedContrast) toggleHighContrast(savedContrast === '1');
+        const savedDyslexia = localStorage.getItem(UI_DYSLEXIA_KEY);
+        if (savedDyslexia) toggleDyslexia(savedDyslexia === '1');
+        const savedCalm = localStorage.getItem(UI_CALM_KEY);
+        if (savedCalm) toggleCalm(savedCalm === '1');
+        const savedExtraTime = localStorage.getItem(UI_EXTRA_TIME_KEY);
+        if (savedExtraTime) toggleExtraTime(savedExtraTime === '1');
+        const savedVibrate = localStorage.getItem(UI_VIBRATE_KEY);
+        if (savedVibrate) toggleVibrate(savedVibrate === '1');
     } catch (_) {}
 }
+
+function syncAccessibilityButtons() {
+    try {
+        const btnContrast = document.getElementById('toggle-contrast');
+        if (btnContrast) btnContrast.classList.toggle('active', document.body.classList.contains('high-contrast'));
+
+        const btnDyslexia = document.getElementById('toggle-dyslexia');
+        if (btnDyslexia) btnDyslexia.classList.toggle('active', document.body.classList.contains('dyslexia-mode'));
+
+        const btnCalm = document.getElementById('toggle-calm');
+        if (btnCalm) btnCalm.classList.toggle('active', document.body.classList.contains('calm-mode'));
+
+        const btnExtraTime = document.getElementById('toggle-extra-time');
+        if (btnExtraTime) btnExtraTime.classList.toggle('active', document.body.classList.contains('extra-time-mode'));
+
+        const btnVibrate = document.getElementById('toggle-vibrate');
+        if (btnVibrate) btnVibrate.classList.toggle('active', document.body.classList.contains('vibrate-mode'));
+    } catch (_) {}
+}
+
 
 // Recalcula tempo do Modo Rápido ao ligar/desligar acessibilidade durante o jogo
 function recomputeRapidTimeWithAccessibility() {
@@ -264,7 +313,11 @@ function recomputeRapidTimeWithAccessibility() {
     }
 
     const isLibrasActive = document.body.classList.contains('libras-mode');
-    const isAccessibilityActive = gameState.isVoiceReadActive || isLibrasActive;
+    const isExtraTime = document.body.classList.contains('extra-time-mode');
+    const isDyslexia = document.body.classList.contains('dyslexia-mode');
+    const isContrast = document.body.classList.contains('high-contrast');
+    // Acessibilidade pode exigir mais tempo mesmo sem voz/libras
+    const isAccessibilityActive = gameState.isVoiceReadActive || isLibrasActive || isExtraTime || isDyslexia || isContrast;
 
     const newMax = isAccessibilityActive ? baseTime * 2 : baseTime;
     if (!Number.isFinite(newMax) || newMax <= 0) return;
@@ -289,7 +342,12 @@ function recomputeRapidTimeWithAccessibility() {
 function updateAccessibilityOnClass() {
     const librasActive = document.body.classList.contains('libras-mode');
     const voiceActive = !!gameState.isVoiceReadActive;
-    document.body.classList.toggle('accessibility-on', voiceActive || librasActive);
+    const dyslexiaActive = document.body.classList.contains('dyslexia-mode');
+    const extraTimeActive = document.body.classList.contains('extra-time-mode');
+    const contrastActive = document.body.classList.contains('high-contrast');
+    const calmActive = document.body.classList.contains('calm-mode');
+    const vibActive = document.body.classList.contains('vibrate-mode');
+    document.body.classList.toggle('accessibility-on', voiceActive || librasActive || dyslexiaActive || extraTimeActive || contrastActive || calmActive || vibActive);
 }
 
 
@@ -316,6 +374,7 @@ function exibirTela(id) {
     if (id === 'home-screen' || id === 'result-screen') {
         updateErrorTrainingButton();
     }
+    try { if (id === 'home-screen' || id === 'result-screen') refreshPetProgressMini(); } catch (_) {}
 
     // Mentor só aparece na tela de questões
     try { updateMentorVisibility(id); } catch (_) {}
@@ -323,6 +382,7 @@ function exibirTela(id) {
 
 /** Reproduz o som de alerta */
 function playAlertSound() {
+    if (document.body.classList.contains('calm-mode')) return;
     if (alertSound) {
         alertSound.currentTime = 0;
         alertSound.play().catch(e => console.error("Erro ao tocar áudio:", e));
@@ -576,7 +636,82 @@ function announceCurrentQuestion() {
 
 
 /** Exibe mensagens de feedback */
+
+// --- ARIA Live global (Leitor de tela) ---
+let __petLiveRegion = null;
+function ensureGlobalLiveRegion() {
+    try {
+        if (__petLiveRegion) return __petLiveRegion;
+        let el = document.getElementById('pet-sr-live');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'pet-sr-live';
+            el.className = 'sr-only';
+            el.setAttribute('aria-live', 'polite');
+            el.setAttribute('aria-atomic', 'true');
+            document.body.appendChild(el);
+        }
+        __petLiveRegion = el;
+        return el;
+    } catch (_) {
+        return null;
+    }
+}
+function announceSR(text, politeness = 'polite') {
+    try {
+        const el = ensureGlobalLiveRegion();
+        if (!el) return;
+        el.setAttribute('aria-live', politeness);
+        // Limpa e escreve (força anúncio)
+        el.textContent = '';
+        setTimeout(() => { el.textContent = String(text || ''); }, 20);
+    } catch (_) {}
+}
+
+// --- Vibração (opcional) ---
+function maybeVibrate(pattern) {
+    try {
+        if (!document.body.classList.contains('vibrate-mode')) return;
+        if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return;
+        navigator.vibrate(pattern);
+    } catch (_) {}
+}
+
+// --- Toggle extras (Dislexia / Calmo / Tempo+ / Vibração) ---
+function toggleDyslexia(force) {
+    const enabled = (typeof force === 'boolean') ? force : !document.body.classList.contains('dyslexia-mode');
+    document.body.classList.toggle('dyslexia-mode', enabled);
+    try { localStorage.setItem(UI_DYSLEXIA_KEY, enabled ? '1' : '0'); } catch (_) {}
+    updateAccessibilityOnClass();
+    // Atualiza tempo no rápido (se aplicável)
+    try { recomputeRapidTimeWithAccessibility(); } catch (_) {}
+    return enabled;
+}
+function toggleCalm(force) {
+    const enabled = (typeof force === 'boolean') ? force : !document.body.classList.contains('calm-mode');
+    document.body.classList.toggle('calm-mode', enabled);
+    try { localStorage.setItem(UI_CALM_KEY, enabled ? '1' : '0'); } catch (_) {}
+    updateAccessibilityOnClass();
+    return enabled;
+}
+function toggleExtraTime(force) {
+    const enabled = (typeof force === 'boolean') ? force : !document.body.classList.contains('extra-time-mode');
+    document.body.classList.toggle('extra-time-mode', enabled);
+    try { localStorage.setItem(UI_EXTRA_TIME_KEY, enabled ? '1' : '0'); } catch (_) {}
+    updateAccessibilityOnClass();
+    try { recomputeRapidTimeWithAccessibility(); } catch (_) {}
+    return enabled;
+}
+function toggleVibrate(force) {
+    const enabled = (typeof force === 'boolean') ? force : !document.body.classList.contains('vibrate-mode');
+    document.body.classList.toggle('vibrate-mode', enabled);
+    try { localStorage.setItem(UI_VIBRATE_KEY, enabled ? '1' : '0'); } catch (_) {}
+    updateAccessibilityOnClass();
+    return enabled;
+}
+
 function showFeedbackMessage(message, type, duration = 3000) {
+    try { announceSR(message); } catch (_) {}
     const feedbackTextElement = document.getElementById('feedback-text');
 
     if (!feedbackMessageElement) return;
@@ -600,6 +735,1359 @@ function showFeedbackMessage(message, type, duration = 3000) {
 // --- LÓGICA DE PERSISTÊNCIA (Local Storage) ---
 // --- PERFIL DO ESTUDANTE (opcional) ---
 const PROFILE_STORAGE_KEY = 'matemagica_profile_v1';
+
+// --- VERSÃO DO STORAGE + SESSÃO EM ANDAMENTO (Prioridade 1) ---
+// Mantém o “andamento do jogo” no dispositivo para continuar depois.
+const PET_STORAGE_VERSION = 1;
+const PET_STORAGE_VERSION_KEY = 'pet_storage_version_v1';
+const PET_SESSION_KEY = 'pet_session_v1';
+
+// --- Prioridade 2: Onboarding (primeiro acesso) + resumo pós-sessão ---
+const PET_ONBOARD_KEY = 'pet_onboarded_v1';
+const PET_LAST_SUMMARY_KEY = 'pet_last_summary_v1';
+
+// --- Prioridade 3: Sequência (streak) + Conquistas (medalhas) ---
+const PET_PROGRESS_KEY = 'pet_progress_v1';
+
+// --- Prioridade 6: Histórico de sessões + Exportar CSV (Relatório) ---
+const PET_SESSION_HISTORY_KEY = 'pet_session_history_v1';
+const PET_SESSION_HISTORY_MAX = 500; // limite de sessões guardadas (neste dispositivo)
+
+// --- Configuração (Prioridade 4+): Bônus de XP por marcos de sequência ---
+// ✅ Para mudar os valores do bônus, altere SOMENTE aqui.
+// Ex.: { days: 3, xp: 15 } -> dá +15 XP quando bater 3 dias seguidos.
+const PET_STREAK_REWARD_RULES = [
+    { days: 3, xp: 10 },
+    { days: 7, xp: 25 },
+    { days: 14, xp: 50 }
+];
+
+function getPetStreakRewardForStreak(streakDays) {
+    try {
+        const s = Math.round(Number(streakDays || 0));
+        const rules = Array.isArray(PET_STREAK_REWARD_RULES) ? PET_STREAK_REWARD_RULES : [];
+        const rule = rules.find(r => Math.round(Number(r.days || 0)) === s);
+        if (!rule) return { xp: 0, label: '' };
+        const xp = Math.round(Number(rule.xp || 0));
+        if (!xp) return { xp: 0, label: '' };
+        const label = rule.label ? String(rule.label) : `${s} dias seguidos`;
+        return { xp, label };
+    } catch (_) {
+        return { xp: 0, label: '' };
+    }
+}
+
+
+
+function ensurePetStorageVersion() {
+    try {
+        const cur = Number(localStorage.getItem(PET_STORAGE_VERSION_KEY));
+        if (!Number.isFinite(cur) || cur <= 0) {
+            localStorage.setItem(PET_STORAGE_VERSION_KEY, String(PET_STORAGE_VERSION));
+            return PET_STORAGE_VERSION;
+        }
+        if (cur !== PET_STORAGE_VERSION) {
+            // Em caso de mudança de versão: evita restaurar sessão incompatível.
+            try { localStorage.removeItem(PET_SESSION_KEY); } catch (_) {}
+            localStorage.setItem(PET_STORAGE_VERSION_KEY, String(PET_STORAGE_VERSION));
+            return PET_STORAGE_VERSION;
+        }
+        return cur;
+    } catch (_) {
+        return PET_STORAGE_VERSION;
+    }
+}
+
+function safeJsonParse(raw, fallback) {
+    try {
+        const obj = raw ? JSON.parse(raw) : fallback;
+        return (obj == null) ? fallback : obj;
+    } catch (_) {
+        return fallback;
+    }
+}
+
+function loadSavedPetSession() {
+    try {
+        const raw = localStorage.getItem(PET_SESSION_KEY);
+        const snap = safeJsonParse(raw, null);
+        if (!snap || typeof snap !== 'object') return null;
+        if (Number(snap.version) !== PET_STORAGE_VERSION) return null;
+        if (!snap.isGameActive) return null;
+        if (!snap.operation || !snap.level) return null;
+        if (!snap.currentQuestion || !Array.isArray(snap.currentQuestion.options)) return null;
+        return snap;
+    } catch (_) {
+        return null;
+    }
+}
+
+function clearSavedPetSession() {
+    try { localStorage.removeItem(PET_SESSION_KEY); } catch (_) {}
+}
+
+function buildPetSessionSnapshot() {
+    const q = gameState.currentQuestion;
+    const snap = {
+        version: PET_STORAGE_VERSION,
+        savedAt: Date.now(),
+        isGameActive: !!gameState.isGameActive,
+        currentScreen: gameState.currentScreen || 'home-screen',
+        operation: gameState.currentOperation || '',
+        level: gameState.currentLevel || '',
+        isRapidMode: !!gameState.isRapidMode,
+        score: Number(gameState.score || 0),
+        questionNumber: Number(gameState.questionNumber || 0),
+        totalQuestions: (Number.isFinite(gameState.totalQuestions) ? Number(gameState.totalQuestions) : null),
+        acertos: Number(gameState.acertos || 0),
+        erros: Number(gameState.erros || 0),
+        timeLeft: Number.isFinite(gameState.timeLeft) ? Number(gameState.timeLeft) : null,
+        maxTime: Number.isFinite(gameState.maxTime) ? Number(gameState.maxTime) : null,
+        currentQuestion: q ? {
+            question: q.question,
+            voiceQuestion: q.voiceQuestion,
+            answer: q.answer,
+            options: Array.isArray(q.options) ? q.options.slice(0, 4) : [],
+            operacao: q.operacao,
+            num1: (q.num1 ?? null),
+            num2: (q.num2 ?? null)
+        } : null,
+        mult: (gameState.currentOperation === 'multiplication' && gameState.multiplication) ? {
+            mode: gameState.multiplication.mode,
+            tabuada: gameState.multiplication.tabuada,
+            trailMin: gameState.multiplication.trailMin,
+            trailMax: gameState.multiplication.trailMax,
+            multMin: gameState.multiplication.multMin,
+            multMax: gameState.multiplication.multMax,
+            trailRangeKey: gameState.multiplication.trailRangeKey,
+            trailPairIndex: gameState.multiplication.trailPairIndex
+        } : null
+    };
+    return snap;
+}
+
+function savePetSessionSnapshotNow() {
+    try {
+        // Só salva se houver jogo ativo e uma questão carregada
+        if (!gameState.isGameActive || !gameState.currentQuestion) return;
+        const snap = buildPetSessionSnapshot();
+        localStorage.setItem(PET_SESSION_KEY, JSON.stringify(snap));
+    } catch (_) {}
+}
+
+let __petSessionSaveTimer = null;
+function savePetSessionSoon() {
+    try {
+        if (__petSessionSaveTimer) clearTimeout(__petSessionSaveTimer);
+        __petSessionSaveTimer = setTimeout(() => {
+            __petSessionSaveTimer = null;
+            savePetSessionSnapshotNow();
+        }, 200);
+    } catch (_) {}
+}
+
+function formatOperationLabel(op) {
+    const map = {
+        addition: 'Adição',
+        subtraction: 'Subtração',
+        multiplication: 'Multiplicação',
+        division: 'Divisão',
+        potenciacao: 'Potenciação',
+        radiciacao: 'Radiciação'
+    };
+    return map[op] || String(op || '').toUpperCase();
+}
+
+
+// --- Prioridade 2: Onboarding (primeiro acesso) ---
+function petLevelLabel(level) {
+    const map = { easy: 'Fácil', medium: 'Médio', advanced: 'Avançado' };
+    return map[level] || String(level || '').toUpperCase();
+}
+
+function isPetOnboarded() {
+    try { return localStorage.getItem(PET_ONBOARD_KEY) === '1'; } catch (_) { return true; }
+}
+
+function setPetOnboarded() {
+    try { localStorage.setItem(PET_ONBOARD_KEY, '1'); } catch (_) {}
+}
+
+function maybeShowOnboardingWizard() {
+    try {
+        if (isPetOnboarded()) return;
+
+        // Se houver sessão salva (continuar), não interrompe com onboarding agora.
+        try {
+            const snap = loadSavedPetSession();
+            if (snap) return;
+        } catch (_) {}
+
+        if (!window.PET_LEVEL1_UI || !PET_LEVEL1_UI.openModal) return;
+
+        const steps = [
+            {
+                title: 'Bem-vindo(a) ao PET — Tabuada',
+                html: `
+                  <div class="pet-pill">Em 20 segundos</div>
+                  <p>Você vai praticar com foco e acompanhar sua evolução.</p>
+                  <ul>
+                    <li><strong>Modo Estudo</strong>: ideal para aprender com calma.</li>
+                    <li><strong>Modo Rápido</strong>: treina velocidade e consistência.</li>
+                    <li>Seu progresso fica salvo neste dispositivo.</li>
+                  </ul>
+                  <p class="pet-muted">Dica: comece pelo <strong>Modo Estudo</strong> e passe para o Rápido quando estiver consistente.</p>
+                `,
+                primaryText: 'Próximo',
+                secondaryText: ''
+            },
+            {
+                title: 'Como funciona',
+                html: `
+                  <div class="pet-pill">Regras simples</div>
+                  <ul>
+                    <li>Você responde questões e acumula <strong>pontos</strong> e <strong>XP</strong>.</li>
+                    <li>Errou? Você tem nova tentativa (quando permitido) e aprende com o feedback.</li>
+                    <li>No <strong>Modo Rápido</strong>, a velocidade influencia o XP.</li>
+                  </ul>
+                `,
+                primaryText: 'Próximo',
+                secondaryText: 'Voltar'
+            },
+            {
+                title: 'Pronto(a) para começar?',
+                html: `
+                  <div class="pet-pill">Você está no controle</div>
+                  <ul>
+                    <li>Você pode <strong>continuar</strong> de onde parou (quando houver sessão salva).</li>
+                    <li>Você pode <strong>reiniciar</strong> quando quiser (com confirmação).</li>
+                  </ul>
+                  <p class="pet-muted">Quando terminar uma sessão, você verá um <strong>resumo</strong> para saber exatamente como foi.</p>
+                `,
+                primaryText: 'Começar',
+                secondaryText: 'Voltar'
+            }
+        ];
+
+        const openStep = (i) => {
+            const step = steps[i];
+            PET_LEVEL1_UI.openModal({
+                title: step.title,
+                html: step.html,
+                primaryText: step.primaryText,
+                secondaryText: step.secondaryText,
+                onPrimary: () => {
+                    if (i < steps.length - 1) {
+                        setTimeout(() => openStep(i + 1), 0);
+                    } else {
+                        setPetOnboarded();
+                        try { PET_LEVEL1_UI.showToast('Tudo certo. Bons estudos!'); } catch (_) {}
+                    }
+                },
+                onSecondary: () => {
+                    if (i > 0) setTimeout(() => openStep(i - 1), 0);
+                }
+            });
+        };
+
+        openStep(0);
+    } catch (_) {}
+}
+
+// --- Prioridade 2: Resumo pós-sessão (modal) ---
+function maybeShowSessionSummary(xpGained) {
+    try {
+        if (gameState.__summaryShown) return;
+        if (!window.PET_LEVEL1_UI || !PET_LEVEL1_UI.openModal) return;
+
+        // Evita resumo em modos que não são sessão principal
+        if (gameState.isTrainingErrors) return;
+
+        const operationLabel = formatOperationLabel(gameState.currentOperation);
+        const levelLabel = petLevelLabel(gameState.currentLevel);
+        const modeLabel = gameState.isRapidMode ? 'Modo Rápido' : 'Modo Estudo';
+
+        const hits = Number(gameState.acertos || 0);
+        const misses = Number(gameState.erros || 0);
+        const attempts = hits + misses;
+
+        const answered = Number(gameState.questionsAnswered || 0) || Number(gameState.questionNumber || 0) || 0;
+        const accuracy = attempts > 0 ? Math.round((hits / attempts) * 100) : 0;
+
+        const totalMs = Number(gameState.totalAnswerTimeMs || 0);
+        const avgSec = (answered > 0 && totalMs > 0) ? (totalMs / answered / 1000) : null;
+
+        let suggestion = 'Continue praticando para ganhar consistência.';
+        if (accuracy < 70 || (misses > hits / 2)) suggestion = 'Sugestão: volte ao <strong>Modo Estudo</strong> para reforçar este conteúdo.';
+        if (accuracy >= 85 && answered >= 10) suggestion = 'Sugestão: excelente! Você pode testar o <strong>Modo Rápido</strong> para aumentar a velocidade.';
+
+        // Persiste um resumo simples (futuro: histórico)
+        try {
+            const payload = {
+                at: Date.now(),
+                operation: gameState.currentOperation,
+                level: gameState.currentLevel,
+                mode: gameState.isRapidMode ? 'rapid' : 'study',
+                answered,
+                hits,
+                misses,
+                accuracy,
+                avgSec: avgSec ? Math.round(avgSec * 10) / 10 : null,
+                score: Number(gameState.score || 0),
+                xpGained: Number(xpGained || 0)
+            };
+            localStorage.setItem(PET_LAST_SUMMARY_KEY, JSON.stringify(payload));
+        } catch (_) {}
+
+        gameState.__summaryShown = true;
+
+        const html = `
+          <div class="pet-pill">Resumo da sessão</div>
+          <div class="pet-modal-kv"><span>Conteúdo</span><strong>${operationLabel} • ${levelLabel}</strong></div>
+          <div class="pet-modal-kv"><span>Modo</span><strong>${modeLabel}</strong></div>
+          <div class="pet-modal-kv"><span>Questões</span><strong>${answered}</strong></div>
+          <div class="pet-modal-kv"><span>Acertos</span><strong>${hits}</strong></div>
+          <div class="pet-modal-kv"><span>Tentativas erradas</span><strong>${misses}</strong></div>
+          <div class="pet-modal-kv"><span>Precisão</span><strong>${accuracy}%</strong></div>
+          ${avgSec != null ? `<div class="pet-modal-kv"><span>Tempo médio (1ª tentativa)</span><strong>${Math.round(avgSec * 10) / 10}s</strong></div>` : ``}
+          
+          ${(() => {
+              try {
+                  const p = loadPetProgress();
+                  const s = Number(p.streak || 0);
+                  const best = Number(p.bestStreak || 0);
+                  return `<div class="pet-summary-streak">🔥 Sequência: <strong>${s}</strong> dia(s) • Recorde: <strong>${best}</strong></div>`;
+              } catch (_) { return ''; }
+          })()}
+          <p class="pet-muted">${suggestion}</p>
+        `;
+
+        PET_LEVEL1_UI.openModal({
+            title: 'Sua evolução',
+            html,
+            primaryText: 'Jogar novamente',
+            secondaryText: 'Voltar ao início',
+            onPrimary: () => {
+                try {
+                    // Mantém o modo atual (Rápido/Estudo)
+                    startGame(gameState.currentOperation, gameState.currentLevel);
+                } catch (_) {}
+            },
+            onSecondary: () => {
+                try { exibirTela('home-screen'); } catch (_) {}
+            }
+        });
+    } catch (_) {}
+}
+
+// --- Prioridade 3: Sequência + Conquistas ---
+function petDateKeyLocal(d = new Date()) {
+    try {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    } catch (_) {
+        return '1970-01-01';
+    }
+}
+
+function petAddDaysToKey(key, deltaDays) {
+    try {
+        const m = String(key || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!m) return petDateKeyLocal();
+        const y = Number(m[1]), mo = Number(m[2]) - 1, da = Number(m[3]);
+        const d = new Date(y, mo, da);
+        d.setDate(d.getDate() + Number(deltaDays || 0));
+        return petDateKeyLocal(d);
+    } catch (_) {
+        return petDateKeyLocal();
+    }
+}
+
+function formatDateBR(key) {
+    try {
+        const m = String(key || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!m) return '';
+        return `${m[3]}/${m[2]}/${m[1]}`;
+    } catch (_) { return ''; }
+}
+
+function getPetBadgeCatalog() {
+    return [
+        { id: 'first_session', title: 'Primeira sessão', desc: 'Concluiu sua primeira sessão.' },
+        { id: 'streak_3', title: '3 dias seguidos', desc: 'Estudou 3 dias consecutivos.' },
+        { id: 'streak_7', title: '7 dias seguidos', desc: 'Manteve uma sequência de 7 dias.' },
+        { id: 'streak_14', title: '14 dias seguidos', desc: 'Manteve uma sequência de 14 dias.' },
+        { id: 'accuracy_90', title: 'Precisão 90%', desc: 'Concluiu uma sessão com 90%+ de precisão (10+ questões).' },
+        { id: 'rapid_90', title: 'Rápido 90%', desc: 'Concluiu no Modo Rápido com 90%+ de precisão (10+ questões).' },
+        { id: 'answered_100', title: '100 questões', desc: 'Respondeu 100 questões no total (somando sessões).' },
+        { id: 'answered_500', title: '500 questões', desc: 'Respondeu 500 questões no total (somando sessões).' }
+    ];
+}
+
+function loadPetProgress() {
+    const def = {
+        version: 1,
+        lastStudyDate: null,
+        streak: 0,
+        bestStreak: 0,
+        totalSessions: 0,
+        totalAnswered: 0,
+        badges: {}
+    };
+    try {
+        const raw = localStorage.getItem(PET_PROGRESS_KEY);
+        const obj = safeJsonParse(raw, def);
+        if (!obj || typeof obj !== 'object') return def;
+        const badges = (obj.badges && typeof obj.badges === 'object') ? obj.badges : {};
+        return {
+            ...def,
+            ...obj,
+            streak: Number(obj.streak || 0),
+            bestStreak: Number(obj.bestStreak || 0),
+            totalSessions: Number(obj.totalSessions || 0),
+            totalAnswered: Number(obj.totalAnswered || 0),
+            badges
+        };
+    } catch (_) {
+        return def;
+    }
+}
+
+function savePetProgress(p) {
+    try {
+        localStorage.setItem(PET_PROGRESS_KEY, JSON.stringify({ ...p, updatedAt: Date.now() }));
+    } catch (_) {}
+}
+
+function awardPetBadge(p, id) {
+    try {
+        if (!p.badges) p.badges = {};
+        if (p.badges[id]) return false;
+        p.badges[id] = Date.now();
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+// --- Prioridade 6: Histórico de sessões (para relatório CSV) ---
+function loadPetSessionHistory() {
+    const def = [];
+    try {
+        const raw = localStorage.getItem(PET_SESSION_HISTORY_KEY);
+        const arr = safeJsonParse(raw, def);
+        return Array.isArray(arr) ? arr : def;
+    } catch (_) {
+        return def;
+    }
+}
+
+function savePetSessionHistory(arr) {
+    try {
+        localStorage.setItem(PET_SESSION_HISTORY_KEY, JSON.stringify(Array.isArray(arr) ? arr : []));
+    } catch (_) {}
+}
+
+function appendPetSessionHistory(entry) {
+    try {
+        if (!entry || typeof entry !== 'object') return;
+        const arr = loadPetSessionHistory();
+
+        // Dedup simples (evita duplicar se o endGame rodar 2x por algum motivo)
+        const last = arr && arr.length ? arr[0] : null;
+        if (last) {
+            const dt = Math.abs(Number(last.endedAt || 0) - Number(entry.endedAt || 0));
+            if (dt < 2000 &&
+                String(last.operation || '') === String(entry.operation || '') &&
+                String(last.level || '') === String(entry.level || '') &&
+                String(last.mode || '') === String(entry.mode || '') &&
+                Number(last.score || 0) === Number(entry.score || 0)
+            ) {
+                return;
+            }
+        }
+
+        arr.unshift(entry);
+        if (arr.length > PET_SESSION_HISTORY_MAX) arr.length = PET_SESSION_HISTORY_MAX;
+        savePetSessionHistory(arr);
+    } catch (_) {}
+}
+
+function formatTimeBR(ts) {
+    try {
+        const d = new Date(Number(ts || 0));
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        return `${hh}:${mm}`;
+    } catch (_) {
+        return '';
+    }
+}
+
+function formatDateBRFromTs(ts) {
+    try {
+        const d = new Date(Number(ts || 0));
+        return formatDateBR(petDateKeyLocal(d));
+    } catch (_) {
+        return '';
+    }
+}
+
+function numBR(v, decimals = 1) {
+    try {
+        if (v == null || v === '') return '';
+        const n = Number(v);
+        if (!Number.isFinite(n)) return String(v);
+        const fixed = (typeof decimals === 'number') ? n.toFixed(decimals) : String(n);
+        // troca ponto por vírgula para Excel pt-BR
+        return fixed.replace('.', ',');
+    } catch (_) {
+        return String(v ?? '');
+    }
+}
+
+function csvEscape(val) {
+    const s = (val == null) ? '' : String(val);
+    if (/[;"\n\r]/.test(s)) {
+        return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+}
+
+function exportPetSessionHistoryCSVUsingItems(itemsDesc, { filename = null, silent = false } = {}) {
+    try {
+        if (!itemsDesc || !itemsDesc.length) {
+            if (!silent) {
+                try { PET_LEVEL1_UI.showToast('Ainda não há sessões registradas para exportar.', { type: 'error', timeout: 3000 }); } catch (_) {}
+            }
+            return false;
+        }
+
+        // Exporta em ordem cronológica (mais antigo -> mais novo)
+        const items = itemsDesc.slice().reverse();
+
+        const headers = [
+            'data', 'hora', 'tipo',
+            'operacao', 'nivel', 'modo', 'submodo',
+            'questoes', 'acertos', 'erros',
+            'precisao_pct', 'tempo_medio_s',
+            'score', 'xp_ganho', 'xp_bonus',
+            'sequencia_dias', 'conquistas',
+            'turma', 'aluno',
+            'perfil_nome', 'perfil_turma', 'perfil_escola',
+            'versao_app'
+        ];
+
+        const lines = [];
+        lines.push(headers.join(';'));
+
+        items.forEach((it) => {
+            const row = {
+                data: formatDateBRFromTs(it.endedAt),
+                hora: formatTimeBR(it.endedAt),
+                tipo: it.sessionType || '',
+                operacao: it.operationLabel || it.operation || '',
+                nivel: it.levelLabel || it.level || '',
+                modo: it.modeLabel || it.mode || '',
+                submodo: it.submode || '',
+                questoes: it.answered ?? '',
+                acertos: it.hits ?? '',
+                erros: it.misses ?? '',
+                precisao_pct: numBR(it.accuracy, 1),
+                tempo_medio_s: (it.avgSec == null) ? '' : numBR(it.avgSec, 1),
+                score: it.score ?? '',
+                xp_ganho: it.xpEarned ?? '',
+                xp_bonus: it.xpBonus ?? '',
+                sequencia_dias: it.streak ?? '',
+                conquistas: it.unlockedTitles || '',
+                turma: (it.className || it.profileTurma || ''),
+                aluno: (it.studentName || it.profileName || ''),
+                perfil_nome: (it.profileName || ''),
+                perfil_turma: (it.profileTurma || ''),
+                perfil_escola: (it.profileEscola || ''),
+                versao_app: it.appVersion || ''
+            };
+
+            const line = headers.map(h => csvEscape(row[h])).join(';');
+            lines.push(line);
+        });
+
+        // BOM ajuda o Excel a reconhecer UTF-8 (acentos)
+        const csv = '\ufeff' + lines.join('\r\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const today = petDateKeyLocal();
+        a.download = filename || `PET_relatorio_sessoes_${today}.csv`;
+        document.body.appendChild(a);
+        a.click();
+
+        setTimeout(() => {
+            try { URL.revokeObjectURL(url); } catch (_) {}
+            try { a.remove(); } catch (_) {}
+        }, 300);
+
+        if (!silent) {
+            try { PET_LEVEL1_UI.showToast('Relatório CSV gerado.', { type: 'success', timeout: 2500 }); } catch (_) {}
+        }
+        return true;
+    } catch (e) {
+        if (!silent) {
+            try { PET_LEVEL1_UI.showToast('Não foi possível exportar o relatório.', { type: 'error', timeout: 3000 }); } catch (_) {}
+        }
+        return false;
+    }
+}
+
+function exportPetSessionHistoryCSV() {
+    const itemsDesc = loadPetSessionHistory();
+    return exportPetSessionHistoryCSVUsingItems(itemsDesc);
+}
+
+// --- Área do Professor (Relatório CSV com filtros) ---
+function petParseDateInputToStartTs(dateStr) {
+    try {
+        if (!dateStr) return null;
+        const parts = String(dateStr).split('-').map(n => Number(n));
+        if (parts.length !== 3) return null;
+        const [y, m, d] = parts;
+        if (!y || !m || !d) return null;
+        return new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+    } catch (_) {
+        return null;
+    }
+}
+
+function petParseDateInputToEndTs(dateStr) {
+    try {
+        if (!dateStr) return null;
+        const parts = String(dateStr).split('-').map(n => Number(n));
+        if (parts.length !== 3) return null;
+        const [y, m, d] = parts;
+        if (!y || !m || !d) return null;
+        return new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
+    } catch (_) {
+        return null;
+    }
+}
+
+function filterPetSessionHistory(itemsDesc, { operation = 'all', level = 'all', classKey = 'all', studentKey = 'all', startDate = '', endDate = '' } = {}) {
+    try {
+        const startTs = petParseDateInputToStartTs(startDate);
+        const endTs = petParseDateInputToEndTs(endDate);
+        const op = String(operation || 'all');
+        const lv = String(level || 'all');
+        const arr = Array.isArray(itemsDesc) ? itemsDesc : [];
+
+        return arr.filter((it) => {
+            const ts = Number(it.endedAt || 0);
+            if (startTs != null && ts < startTs) return false;
+            if (endTs != null && ts > endTs) return false;
+            if (op !== 'all' && String(it.operation || '') !== op) return false;
+            if (lv !== 'all' && String(it.level || '') !== lv) return false;
+
+            // Filtros opcionais por Turma/Aluno (offline)
+            const ck = String(classKey || 'all');
+            const sk = String(studentKey || 'all');
+
+            const itClassName = String(it.className || it.profileTurma || '').trim();
+            const itStudentName = String(it.studentName || it.profileName || '').trim();
+
+            if (ck !== 'all') {
+                if (ck.startsWith('n:')) {
+                    const name = ck.slice(2);
+                    if (itClassName !== name) return false;
+                } else {
+                    // fallback: compara por texto também
+                    if (itClassName !== ck) return false;
+                }
+            }
+
+            if (sk !== 'all') {
+                if (sk.startsWith('n:')) {
+                    const name = sk.slice(2);
+                    if (itStudentName !== name) return false;
+                } else {
+                    if (itStudentName !== sk) return false;
+                }
+            }
+
+            return true;
+        });
+    } catch (_) {
+        return Array.isArray(itemsDesc) ? itemsDesc : [];
+    }
+}
+
+function summarizePetSessions(itemsDesc) {
+    const arr = Array.isArray(itemsDesc) ? itemsDesc : [];
+    const sum = {
+        sessions: arr.length,
+        totalAnswered: 0,
+        totalHits: 0,
+        totalMisses: 0,
+        avgAccuracy: null,
+        avgSec: null,
+        firstTs: null,
+        lastTs: null
+    };
+    if (!arr.length) return sum;
+
+    let accSum = 0;
+    let accCount = 0;
+    let secSum = 0;
+    let secCount = 0;
+    let first = null;
+    let last = null;
+
+    arr.forEach((it) => {
+        const answered = Number(it.answered || 0);
+        const hits = Number(it.hits || 0);
+        const misses = Number(it.misses || 0);
+        const ts = Number(it.endedAt || 0);
+        if (Number.isFinite(answered)) sum.totalAnswered += answered;
+        if (Number.isFinite(hits)) sum.totalHits += hits;
+        if (Number.isFinite(misses)) sum.totalMisses += misses;
+
+        const acc = Number(it.accuracy);
+        if (Number.isFinite(acc)) { accSum += acc; accCount += 1; }
+
+        const sec = Number(it.avgSec);
+        if (Number.isFinite(sec) && sec > 0) { secSum += sec; secCount += 1; }
+
+        if (Number.isFinite(ts) && ts > 0) {
+            if (first == null || ts < first) first = ts;
+            if (last == null || ts > last) last = ts;
+        }
+    });
+
+    sum.avgAccuracy = accCount ? (accSum / accCount) : null;
+    sum.avgSec = secCount ? (secSum / secCount) : null;
+    sum.firstTs = first;
+    sum.lastTs = last;
+    return sum;
+}
+
+function buildPetSubmodeLabel() {
+    try {
+        if (gameState.currentOperation !== 'multiplication' || !gameState.multiplication) return '';
+        const m = gameState.multiplication;
+        const mMin = Number.isInteger(m.multMin) ? m.multMin : 0;
+        const mMax = Number.isInteger(m.multMax) ? m.multMax : 20;
+
+        if (m.mode === 'trail') {
+            const tMin = Number.isInteger(m.trailMin) ? m.trailMin : 0;
+            const tMax = Number.isInteger(m.trailMax) ? m.trailMax : 20;
+            return `Trilha ${tMin}–${tMax} (×${mMin}–${mMax})`;
+        }
+        if (m.mode === 'direct') {
+            const tab = Number.isInteger(m.tabuada) ? m.tabuada : 0;
+            return `Direto Tabuada ${tab} (×${mMin}–${mMax})`;
+        }
+        return '';
+    } catch (_) {
+        return '';
+    }
+}
+
+function recordPetCompletedSession({ sessionType = 'sessao', upd = null, bonusApplied = 0 } = {}) {
+    try {
+        const endedAt = Date.now();
+
+        const operation = gameState.currentOperation || '';
+        const level = gameState.currentLevel || '';
+        const mode = gameState.isRapidMode ? 'rapid' : 'study';
+
+        const hits = Number(gameState.acertos || 0);
+        const misses = Number(gameState.erros || 0);
+        const attempts = Math.max(1, hits + misses);
+        const accuracy = (hits / attempts) * 100;
+
+        const answered = (Number.isFinite(gameState.totalQuestions) && gameState.totalQuestions !== Infinity)
+            ? Number(gameState.totalQuestions)
+            : Number(gameState.questionNumber || 0);
+
+        const totalMs = Number(gameState.totalAnswerTimeMs || 0);
+        const answeredForTime = Number(gameState.questionsAnswered || 0);
+        const avgSec = (answeredForTime > 0 && totalMs > 0) ? (totalMs / answeredForTime / 1000) : null;
+
+        // XP: como o bônus entra em xpGainedRound, separamos aqui
+        const xpRoundTotal = Math.round(Number(gameState.xpGainedRound || 0));
+        const xpBonus = Math.round(Number(bonusApplied || 0));
+        const xpEarned = Math.max(0, xpRoundTotal - xpBonus);
+
+        let streak = 0;
+        let unlockedTitles = '';
+        try {
+            const p = (upd && upd.progress) ? upd.progress : loadPetProgress();
+            streak = Number(p.streak || 0);
+        } catch (_) {}
+
+        try {
+            const ids = (upd && Array.isArray(upd.newlyUnlocked)) ? upd.newlyUnlocked : [];
+            if (ids.length) {
+                const cat = getPetBadgeCatalog();
+                unlockedTitles = ids
+                    .map(id => (cat.find(b => b.id === id)?.title) || id)
+                    .join(' | ');
+            }
+        } catch (_) {}
+
+        const entry = {
+            id: `${endedAt}-${Math.random().toString(16).slice(2)}`,
+            endedAt,
+            dateKey: petDateKeyLocal(new Date(endedAt)),
+            sessionType: String(sessionType || 'sessao'),
+            operation,
+            operationLabel: formatOperationLabel(operation),
+            level,
+            levelLabel: petLevelLabel(level),
+            mode,
+            modeLabel: gameState.isRapidMode ? 'Modo Rápido' : 'Modo Estudo',
+            submode: buildPetSubmodeLabel(),
+            answered,
+            hits,
+            misses,
+            accuracy: Math.round(accuracy * 10) / 10,
+            avgSec: (avgSec == null) ? null : (Math.round(avgSec * 10) / 10),
+            score: Math.round(Number(gameState.score || 0)),
+            xpEarned,
+            xpBonus,
+            streak,
+            unlockedTitles,
+            profileName: (getStudentProfile()?.name || ''),
+            profileTurma: (getStudentProfile()?.turma || ''),
+            profileEscola: (getStudentProfile()?.escola || ''),
+            appVersion: (document.body.getAttribute('data-version') || '')
+        };
+
+        appendPetSessionHistory(entry);
+    } catch (_) {}
+}
+
+function updatePetProgressOnSessionEnd({ answered = 0, accuracy = 0, mode = 'study' } = {}) {
+    const p = loadPetProgress();
+    const today = petDateKeyLocal();
+    const yesterday = petAddDaysToKey(today, -1);
+
+    const last = p.lastStudyDate;
+    let streakChanged = false;
+
+    if (last === today) {
+        // mesma data: não mexe no streak
+    } else if (last === yesterday) {
+        p.streak = Math.max(1, Number(p.streak || 0) + 1);
+        streakChanged = true;
+    } else {
+        p.streak = 1;
+        streakChanged = true;
+    }
+
+    p.lastStudyDate = today;
+    p.bestStreak = Math.max(Number(p.bestStreak || 0), Number(p.streak || 0));
+    p.totalSessions = Number(p.totalSessions || 0) + 1;
+    p.totalAnswered = Number(p.totalAnswered || 0) + Math.max(0, Number(answered || 0));
+
+    const newlyUnlocked = [];
+
+    // Conquistas
+    if (awardPetBadge(p, 'first_session')) newlyUnlocked.push('first_session');
+    if (p.streak >= 3 && awardPetBadge(p, 'streak_3')) newlyUnlocked.push('streak_3');
+    if (p.streak >= 7 && awardPetBadge(p, 'streak_7')) newlyUnlocked.push('streak_7');
+    if (p.streak >= 14 && awardPetBadge(p, 'streak_14')) newlyUnlocked.push('streak_14');
+
+    if (Number(accuracy) >= 90 && Number(answered) >= 10 && awardPetBadge(p, 'accuracy_90')) newlyUnlocked.push('accuracy_90');
+    if (String(mode) === 'rapid' && Number(accuracy) >= 90 && Number(answered) >= 10 && awardPetBadge(p, 'rapid_90')) newlyUnlocked.push('rapid_90');
+
+    if (p.totalAnswered >= 100 && awardPetBadge(p, 'answered_100')) newlyUnlocked.push('answered_100');
+    if (p.totalAnswered >= 500 && awardPetBadge(p, 'answered_500')) newlyUnlocked.push('answered_500');
+
+    // Recompensa de sequência (XP bônus em marcos: 3/7/14 dias)
+    let streakReward = { xp: 0, label: '' };
+    try {
+        if (streakChanged) {
+            // Bônus configurável (mude os valores em PET_STREAK_REWARD_RULES)
+            streakReward = getPetStreakRewardForStreak(p.streak);
+        }
+    } catch (_) {}
+
+    savePetProgress(p);
+
+    // Atualiza UI (Home) se existir
+    try { refreshPetProgressMini(); } catch (_) {}
+
+    return { progress: p, newlyUnlocked, streakChanged, streakReward };
+}
+
+
+
+// --- Prioridade 3+: Recompensa de sequência (XP) + Medalhas na tela de Resultado ---
+function refreshResultScreenXPSummary() {
+    try {
+        const gained = Number(gameState.xpGainedRound) || 0;
+        const elG = document.getElementById('xp-gained');
+        const elT = document.getElementById('xp-total');
+        if (elG) elG.textContent = `+${gained}`;
+        if (elT) elT.textContent = String(gameState.xp ?? 0);
+    } catch (_) {}
+}
+
+function grantPetBonusXP(amount) {
+    const a = Math.round(Number(amount) || 0);
+    if (!a) return 0;
+
+    try {
+        // Atualiza XP total (salva no localStorage) usando a função existente
+        atualizarXP(a);
+    } catch (_) {
+        // Fallback: mantém o app funcionando mesmo se atualizarXP falhar
+        try {
+            gameState.xp = (Number(gameState.xp) || 0) + a;
+            localStorage.setItem('matemagica_xp', String(gameState.xp));
+        } catch (__) {}
+    }
+
+    // Atualiza o “XP ganho na rodada” mesmo se o jogo já tiver sido finalizado
+    try {
+        gameState.xpGainedRound = (Number(gameState.xpGainedRound) || 0) + a;
+    } catch (_) {}
+
+    // Reflete na UI de resultado (se já estiver no DOM)
+    try { refreshResultScreenXPSummary(); } catch (_) {}
+
+    return a;
+}
+
+function applyPetStreakRewardIfAny(upd) {
+    try {
+        if (!upd || typeof upd !== 'object') return 0;
+        if (gameState.__petStreakRewardApplied) return 0;
+
+        const rewardXP = Number(upd.streakReward?.xp || 0);
+        if (!rewardXP) return 0;
+
+        gameState.__petStreakRewardApplied = true;
+        return grantPetBonusXP(rewardXP);
+    } catch (_) {
+        return 0;
+    }
+}
+
+function ensurePetSessionRewardsContainer() {
+    try {
+        const resultScreen = document.getElementById('result-screen');
+        if (!resultScreen) return null;
+
+        if (document.getElementById('pet-session-rewards')) {
+            return document.getElementById('pet-session-rewards');
+        }
+
+        const summaryCard = resultScreen.querySelector('.info-card.result-summary') || resultScreen.querySelector('.result-summary') || resultScreen;
+        if (!summaryCard) return null;
+
+        const wrap = document.createElement('div');
+        wrap.id = 'pet-session-rewards';
+        wrap.className = 'pet-session-rewards hidden';
+        wrap.setAttribute('aria-live', 'polite');
+
+        const xpSummary = summaryCard.querySelector('.xp-summary');
+        if (xpSummary) xpSummary.insertAdjacentElement('afterend', wrap);
+        else summaryCard.appendChild(wrap);
+
+        return wrap;
+    } catch (_) {
+        return null;
+    }
+}
+
+function renderPetSessionRewardsOnResultScreen() {
+    try {
+        const wrap = ensurePetSessionRewardsContainer();
+        if (!wrap) return;
+
+        const upd = gameState.__petProgressUpdate;
+        if (!upd || typeof upd !== 'object') {
+            wrap.classList.add('hidden');
+            return;
+        }
+
+        const rewardXP = Number(upd.streakReward?.xp || 0);
+        const streakNow = Number(upd.progress?.streak || 0);
+        const unlocked = Array.isArray(upd.newlyUnlocked) ? upd.newlyUnlocked.slice() : [];
+
+        if (!rewardXP && unlocked.length === 0) {
+            wrap.classList.add('hidden');
+            return;
+        }
+
+        const catalog = getPetBadgeCatalog();
+        const chips = unlocked.slice(0, 4).map((id) => {
+            const title = (catalog.find(b => b.id === id)?.title) || id;
+            return `<span class="pet-badge-chip pet-badge-chip-new">🎖 ${escapeHtml(title)}</span>`;
+        }).join('');
+
+        const extra = unlocked.length > 4
+            ? `<span class="pet-badge-chip">+${unlocked.length - 4}</span>`
+            : '';
+
+        wrap.innerHTML = `
+          <div class="pet-session-rewards-title">Nesta sessão</div>
+          <div class="pet-reward-row">
+            <span class="pet-pill-chip">🔥 Sequência: ${streakNow} dia${streakNow === 1 ? '' : 's'}</span>
+            ${rewardXP ? `<span class="pet-pill-chip">🎁 Bônus: +${rewardXP} XP</span>` : ``}
+          </div>
+          ${unlocked.length ? `
+            <div class="pet-session-rewards-subtitle">Conquistas</div>
+            <div class="pet-unlocked-now"><span class="pet-unlocked-now-tag">✅ Desbloqueado agora</span></div>
+            <div class="pet-badge-chips">
+              ${chips}${extra}
+            </div>
+            <div class="pet-session-muted">Veja tudo em “Conquistas” na Home.</div>
+          ` : ``}
+        `;
+
+        wrap.classList.remove('hidden');
+    } catch (_) {}
+}
+
+
+// UI (Home): chip de sequência + botão de conquistas
+function ensurePetProgressMini() {
+    const home = document.getElementById('home-screen');
+    if (!home) return;
+
+    if (document.getElementById('pet-progress-mini')) return;
+
+    // tenta inserir depois do bloco "Sobre & Versão", senão depois do ranking
+    const aboutBtn = document.getElementById('btn-about-version');
+    const rankingBtn = document.getElementById('btn-show-ranking');
+
+    const anchor = aboutBtn ? aboutBtn.parentElement : rankingBtn;
+    if (!anchor) return;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'pet-progress-mini';
+    wrap.id = 'pet-progress-mini';
+
+    const chip = document.createElement('div');
+    chip.className = 'pet-streak-chip';
+    chip.id = 'pet-streak-chip';
+    chip.setAttribute('role', 'status');
+    chip.textContent = '🔥 Sequência: 0 dias';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'btn-pet-achievements';
+    btn.className = 'btn-secondary';
+    btn.textContent = '🎖 Conquistas';
+
+    wrap.appendChild(chip);
+    wrap.appendChild(btn);
+
+    anchor.insertAdjacentElement('afterend', wrap);
+
+    btn.addEventListener('click', () => {
+        openPetAchievementsModal();
+    });
+
+    refreshPetProgressMini();
+}
+
+function refreshPetProgressMini() {
+    const chip = document.getElementById('pet-streak-chip');
+    if (!chip) return;
+
+    const p = loadPetProgress();
+    const s = Number(p.streak || 0);
+
+    chip.textContent = `🔥 Sequência: ${s} dia${s === 1 ? '' : 's'}`;
+    chip.title = `Recorde: ${Number(p.bestStreak || 0)} dia(s) • Sessões: ${Number(p.totalSessions || 0)} • Questões: ${Number(p.totalAnswered || 0)}`;
+}
+
+function openPetAchievementsModal() {
+    if (!window.PET_LEVEL1_UI || !PET_LEVEL1_UI.openModal) return;
+
+    const p = loadPetProgress();
+    const catalog = getPetBadgeCatalog();
+
+    const badgesHtml = catalog.map(b => {
+        const unlocked = !!(p.badges && p.badges[b.id]);
+        const when = unlocked ? formatDateBR(petDateKeyLocal(new Date(Number(p.badges[b.id])))) : '';
+        return `
+          <div class="pet-badge ${unlocked ? 'unlocked' : 'locked'}">
+            <div class="pet-badge-title">${unlocked ? '✅' : '🔒'} ${b.title}</div>
+            <div class="pet-badge-desc">${b.desc}${unlocked && when ? ` <span class="pet-badge-when">(desde ${when})</span>` : ''}</div>
+          </div>
+        `;
+    }).join('');
+
+    const html = `
+      <div class="pet-pill">Progresso</div>
+      <div class="pet-modal-kv"><span>Sequência atual</span><strong>${Number(p.streak || 0)} dia(s)</strong></div>
+      <div class="pet-modal-kv"><span>Recorde</span><strong>${Number(p.bestStreak || 0)} dia(s)</strong></div>
+      <div class="pet-modal-kv"><span>Sessões concluídas</span><strong>${Number(p.totalSessions || 0)}</strong></div>
+      <div class="pet-modal-kv"><span>Questões respondidas</span><strong>${Number(p.totalAnswered || 0)}</strong></div>
+      <div class="pet-modal-kv"><span>Último estudo</span><strong>${p.lastStudyDate ? formatDateBR(p.lastStudyDate) : '—'}</strong></div>
+
+      <div class="pet-divider"></div>
+      <div class="pet-pill">Conquistas</div>
+      <div class="pet-badge-grid">
+        ${badgesHtml}
+      </div>
+      <p class="pet-muted">As conquistas ficam salvas neste dispositivo.</p>
+    `;
+
+    PET_LEVEL1_UI.openModal({
+        title: 'Sequência & Conquistas',
+        html,
+        primaryText: 'Fechar',
+        secondaryText: '📄 Exportar CSV',
+        onPrimary: () => {},
+        onSecondary: () => {
+            try { exportPetSessionHistoryCSV(); } catch (_) {}
+        }
+    });
+}
+
+
+function formatLevelLabel(level) {
+    const map = { easy: 'Fácil', medium: 'Médio', advanced: 'Difícil' };
+    return map[level] || String(level || '').toUpperCase();
+}
+
+function applyGameModeUIForResume() {
+    const timeContainer = timeBar && timeBar.parentElement;
+    if (!timeContainer) return;
+
+    if (!gameState.isRapidMode) {
+        timeContainer.style.display = 'none';
+        if (btnExtendTime) btnExtendTime.style.display = 'none';
+        if (btnShowAnswer) btnShowAnswer.style.display = 'block';
+    } else {
+        timeContainer.style.display = 'block';
+        if (btnExtendTime) btnExtendTime.style.display = 'block';
+        if (btnShowAnswer) btnShowAnswer.style.display = 'block';
+        try {
+            const pct = (Number(gameState.timeLeft) / Number(gameState.maxTime)) * 100;
+            timeBar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+        } catch (_) {}
+    }
+}
+
+function resumePetSessionFromSnapshot(snap) {
+    if (!snap) return false;
+
+    // Estado base
+    gameState.currentOperation = snap.operation;
+    gameState.currentLevel = snap.level;
+    gameState.isRapidMode = !!snap.isRapidMode;
+    gameState.isGameActive = true;
+    gameState.score = Number(snap.score || 0);
+    gameState.questionNumber = Math.max(1, Number(snap.questionNumber || 1));
+    gameState.totalQuestions = Number.isFinite(snap.totalQuestions) ? Number(snap.totalQuestions) : (gameState.isRapidMode ? 20 : Infinity);
+    gameState.acertos = Number(snap.acertos || 0);
+    gameState.erros = Number(snap.erros || 0);
+    gameState.maxTime = Number.isFinite(snap.maxTime) ? Number(snap.maxTime) : gameState.maxTime;
+    gameState.timeLeft = Number.isFinite(snap.timeLeft) ? Number(snap.timeLeft) : gameState.maxTime;
+    gameState.lowTimeAlerted = false;
+
+    // Multiplicação: reaplica configuração básica (o progresso detalhado já é persistido em outras chaves)
+    if (snap.mult && gameState.multiplication) {
+        try {
+            gameState.multiplication.mode = snap.mult.mode || gameState.multiplication.mode;
+            gameState.multiplication.tabuada = Number.isInteger(snap.mult.tabuada) ? snap.mult.tabuada : gameState.multiplication.tabuada;
+            gameState.multiplication.trailMin = Number.isInteger(snap.mult.trailMin) ? snap.mult.trailMin : gameState.multiplication.trailMin;
+            gameState.multiplication.trailMax = Number.isInteger(snap.mult.trailMax) ? snap.mult.trailMax : gameState.multiplication.trailMax;
+            gameState.multiplication.multMin = Number.isInteger(snap.mult.multMin) ? snap.mult.multMin : gameState.multiplication.multMin;
+            gameState.multiplication.multMax = Number.isInteger(snap.mult.multMax) ? snap.mult.multMax : gameState.multiplication.multMax;
+            if (typeof snap.mult.trailRangeKey === 'string') gameState.multiplication.trailRangeKey = snap.mult.trailRangeKey;
+            if (Number.isInteger(snap.mult.trailPairIndex)) gameState.multiplication.trailPairIndex = snap.mult.trailPairIndex;
+            saveMultiplicationConfig();
+        } catch (_) {}
+    }
+
+    // UI: modo
+    try {
+        if (modeRapidoBtn && modeEstudoBtn) {
+            modeRapidoBtn.classList.toggle('active', !!gameState.isRapidMode);
+            modeEstudoBtn.classList.toggle('active', !gameState.isRapidMode);
+        }
+    } catch (_) {}
+
+    applyGameModeUIForResume();
+
+    // Questão atual
+    const q = snap.currentQuestion;
+    gameState.currentQuestion = {
+        question: String(q.question || ''),
+        voiceQuestion: String(q.voiceQuestion || q.question || ''),
+        answer: Number(q.answer || 0),
+        options: Array.isArray(q.options) ? q.options.slice(0, 4) : [],
+        operacao: q.operacao || gameState.currentOperation,
+        num1: (q.num1 ?? null),
+        num2: (q.num2 ?? null)
+    };
+
+    // Cabeçalho do jogo
+    if (playerScoreElement) playerScoreElement.textContent = `${gameState.score} Pontos`;
+
+    // Contador
+    const isTabuadaRound = (gameState.currentOperation === 'multiplication' && gameState.multiplication && (gameState.multiplication.mode === 'direct' || gameState.multiplication.mode === 'trail'));
+    const totalDisplay = (gameState.isRapidMode || isTabuadaRound) ? gameState.totalQuestions : '∞';
+    if (questionCounter) questionCounter.textContent = `Questão: ${gameState.questionNumber}/${totalDisplay}`;
+    if (questionText) questionText.textContent = gameState.currentQuestion.question;
+    try {
+        // Anúncio curto para leitor de tela (as opções ficam nos botões)
+        announceSR(`Questão ${gameState.questionNumber} de ${totalDisplay}. ${gameState.currentQuestion.question}`);
+    } catch (_) {}
+
+    // Opções
+    answerOptions.forEach((btn, index) => {
+        let idxSpan = btn.querySelector('.answer-index');
+        const txtSpan = btn.querySelector('.answer-text');
+        if (!idxSpan) {
+            idxSpan = document.createElement('span');
+            idxSpan.className = 'answer-index';
+            btn.insertBefore(idxSpan, txtSpan);
+        }
+        idxSpan.textContent = `${index + 1})`;
+        const optVal = String(gameState.currentQuestion.options[index] ?? '');
+        if (txtSpan) txtSpan.textContent = optVal;
+        try { btn.setAttribute('aria-label', `Opção ${index + 1}: ${optVal}`); } catch (_) {}
+        btn.classList.remove('correct', 'wrong');
+        btn.disabled = false;
+    });
+    clearAnswerFocus();
+
+    // Entra no jogo
+    exibirTela('game-screen');
+    try { updateCycleProgressUI(); } catch (_) {}
+    try { updateMentorForCurrentQuestion(); } catch (_) {}
+    try { announceCurrentQuestion(); } catch (_) {}
+
+    if (gameState.isRapidMode) {
+        stopTimer();
+        startTimer();
+    } else {
+        stopTimer();
+    }
+
+    // Persiste imediatamente
+    savePetSessionSnapshotNow();
+    return true;
+}
+
+function ensureContinueSessionButton() {
+    const home = document.getElementById('home-screen');
+    if (!home) return;
+
+    if (document.getElementById('btn-continue-session')) return;
+    const anchor = document.getElementById('btn-show-ranking');
+    if (!anchor) return;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'btn-continue-session';
+    btn.className = 'main-btn';
+    btn.style.display = 'none';
+    btn.textContent = '▶ Continuar sessão';
+
+    anchor.insertAdjacentElement('beforebegin', btn);
+
+    const prompt = () => {
+        const snap = loadSavedPetSession();
+        if (!snap) {
+            btn.style.display = 'none';
+            return;
+        }
+        const op = formatOperationLabel(snap.operation);
+        const lvl = formatLevelLabel(snap.level);
+        const mode = snap.isRapidMode ? 'Rápido' : 'Estudo';
+        const qn = Number(snap.questionNumber || 0);
+        const tq = Number.isFinite(snap.totalQuestions) ? Number(snap.totalQuestions) : null;
+
+        try {
+            PET_LEVEL1_UI.openModal({
+                title: 'Sessão em andamento',
+                html: `
+                  <p><strong>${op}</strong> — Nível <strong>${lvl}</strong> — Modo <strong>${mode}</strong></p>
+                  <p style="margin-top:8px;">Progresso: <strong>${qn}</strong>${tq ? `/${tq}` : ''}</p>
+                  <p style="margin-top:10px; opacity:.95;">Quer continuar de onde parou?</p>
+                `,
+                primaryText: 'Continuar',
+                secondaryText: 'Reiniciar',
+                onPrimary: () => {
+                    resumePetSessionFromSnapshot(snap);
+                },
+                onSecondary: () => {
+                    PET_LEVEL1_UI.openModal({
+                        title: 'Reiniciar sessão',
+                        html: `<p>Isso vai apagar o andamento desta sessão neste dispositivo.</p><p style="margin-top:8px;"><strong>Quer mesmo reiniciar?</strong></p>`,
+                        primaryText: 'Apagar e voltar',
+                        secondaryText: 'Cancelar',
+                        onPrimary: () => {
+                            stopTimer();
+                            gameState.isGameActive = false;
+                            clearSavedPetSession();
+                            btn.style.display = 'none';
+                            exibirTela('home-screen');
+                        }
+                    });
+                }
+            });
+        } catch (_) {}
+    };
+
+    btn.addEventListener('click', prompt);
+}
+
+function refreshContinueSessionButtonVisibility() {
+    const btn = document.getElementById('btn-continue-session');
+    if (!btn) return;
+    const snap = loadSavedPetSession();
+    btn.style.display = snap ? 'block' : 'none';
+}
+
+function initPetSessionPersistence() {
+    ensurePetStorageVersion();
+    ensureContinueSessionButton();
+    refreshContinueSessionButtonVisibility();
+
+    // Salva quando o app perde foco
+    try {
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) savePetSessionSnapshotNow();
+        });
+        window.addEventListener('beforeunload', () => {
+            savePetSessionSnapshotNow();
+        });
+    } catch (_) {}
+
+    // Auto-save leve (captura timeLeft no rápido)
+    try {
+        setInterval(() => {
+            if (gameState.isGameActive && gameState.currentQuestion) {
+                savePetSessionSnapshotNow();
+                refreshContinueSessionButtonVisibility();
+            }
+        }, 2000);
+    } catch (_) {}
+
+    // Se houver sessão salva, pergunta ao abrir (só se a pessoa estiver na home)
+    const snap = loadSavedPetSession();
+    if (snap) {
+        setTimeout(() => {
+            const onHome = (gameState.currentScreen || 'home-screen') === 'home-screen';
+            if (!onHome) return;
+            const btn = document.getElementById('btn-continue-session');
+            if (btn && btn.style.display !== 'none') btn.click();
+        }, 600);
+    }
+}
 
 function loadStudentProfile() {
     try {
@@ -754,7 +2242,9 @@ function renderLearningMapPreview(operation) {
         if (operation === 'multiplication') {
             const r = getTabuadaRangeByLevel(lvl.key);
             const key = `${r.min}-${r.max}|${r.multMin}-${r.multMax}`;
-            const bankSize = (r.max - r.min + 1) * (r.multMax - r.multMin + 1);
+            // IMPORTANTE: Fácil e Médio têm 50 combinações únicas, mas a trilha do PET usa 56 (50 + 6 revisões).
+            // Então o tamanho correto aqui deve ser o ALVO da trilha (não apenas combinações únicas).
+            const bankSize = getTrailTargetSize(r.min, r.max, r.multMin, r.multMax);
             const idx = getSavedTrailIndexForKey(key, bankSize);
             const ratio = bankSize > 0 ? (idx / bankSize) : 0;
             done = Math.max(0, Math.min(10, Math.floor(ratio * 10)));
@@ -1050,7 +2540,10 @@ function initPWA() {
 
         // Service Worker (offline)
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js').catch(err => {
+            navigator.serviceWorker.register('sw.js').then((reg) => {
+                try { PET_LEVEL1_UI.bindSWUpdateFlow(); } catch (_) {}
+                return reg;
+            }).catch(err => {
                 console.warn('Service Worker não registrado:', err);
             });
         }
@@ -1104,6 +2597,7 @@ function initTeacherPanel() {
           <div class="teacher-row">
             <button id="tp-projection" class="btn-action btn-secondary" type="button">Modo Projeção</button>
             <button id="tp-low" class="btn-action btn-secondary" type="button">Baixo Estímulo</button>
+            <button id="tp-video" class="btn-action btn-secondary" type="button" title="Assistir vídeo curto explicando as funções do PET.">🎥 Ajuda em vídeo</button>
           </div>
           <p class="teacher-help">Use <strong>Projeção</strong> no datashow e <strong>Baixo estímulo</strong> para reduzir animações e distrações.</p>
         </div>
@@ -1114,6 +2608,67 @@ function initTeacherPanel() {
             <button id="tp-import" class="btn-action btn-secondary" type="button">Importar Dados</button>
           </div>
           <p class="teacher-help">Exporta/Importa: XP, Ranking e Erros (backup local, sem internet).</p>
+        </div>
+
+        <div class="teacher-panel-section">
+          <h3>Relatório CSV (sessões)</h3>
+          <div class="tp-filter-grid" aria-label="Filtros do relatório">
+            <div class="tp-field">
+              <label class="tp-label" for="tp-fop">Operação</label>
+              <select id="tp-fop" class="tp-input"></select>
+            </div>
+            <div class="tp-field">
+              <label class="tp-label" for="tp-flv">Nível</label>
+              <select id="tp-flv" class="tp-input"></select>
+            </div>
+            <div class="tp-field">
+              <label class="tp-label" for="tp-fturma">Turma</label>
+              <select id="tp-fturma" class="tp-input"></select>
+            </div>
+            <div class="tp-field">
+              <label class="tp-label" for="tp-faluno">Aluno</label>
+              <select id="tp-faluno" class="tp-input"></select>
+            </div>
+            <div class="tp-field">
+              <label class="tp-label" for="tp-fstart">De</label>
+              <input id="tp-fstart" class="tp-input" type="date" />
+            </div>
+            <div class="tp-field">
+              <label class="tp-label" for="tp-fend">Até</label>
+              <input id="tp-fend" class="tp-input" type="date" />
+            </div>
+          </div>
+          <div class="teacher-row tp-export-row" style="margin-top:10px;">
+            <button id="tp-export-csv" class="btn-action btn-secondary" type="button">📄 Exportar CSV (Tudo)</button>
+            <button id="tp-export-csv-sessao" class="btn-action btn-secondary" type="button">📄 Só Rodadas</button>
+            <button id="tp-export-csv-erros" class="btn-action btn-secondary" type="button">📄 Só Treino de Erros</button>
+            <button id="tp-clear-csv-filters" class="btn-secondary" type="button">Limpar filtros</button>
+          </div>
+          <p id="tp-report-summary" class="teacher-help">Selecione filtros e exporte o relatório. (Dados locais deste dispositivo.)</p>
+
+          <div class="tp-preview" aria-label="Prévia das sessões filtradas">
+            <div class="tp-preview-title"><strong>Prévia (até 30)</strong></div>
+            <div class="tp-preview-table-wrap">
+              <table id="tp-preview-table" class="tp-table" aria-label="Tabela de prévia das sessões">
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Hora</th>
+                    <th>Tipo</th>
+                    <th>Operação</th>
+                    <th>Nível</th>
+                    <th>Modo</th>
+                    <th>Questões</th>
+                    <th>Precisão</th>
+                    <th>Tempo</th>
+                    <th>XP</th>
+                  </tr>
+                </thead>
+                <tbody id="tp-preview-tbody"></tbody>
+              </table>
+            </div>
+            <p id="tp-preview-note" class="teacher-help">Mostrando as últimas sessões do filtro (máx. 30). Para análise completa, exporte o CSV.</p>
+          </div>
         </div>
 
         <div class="teacher-panel-section">
@@ -1142,7 +2697,12 @@ function initTeacherPanel() {
     })();
 
     const close = () => overlay.classList.add('hidden');
-    const open = () => overlay.classList.remove('hidden');
+    const open = () => {
+        overlay.classList.remove('hidden');
+        // Atualiza filtros/resumo do relatório quando abrir
+        try { initCsvFiltersOnce(); } catch (_) {}
+        try { updateCsvSummary(); } catch (_) {}
+    };
 
     fab.addEventListener('click', () => {
         if (overlay.classList.contains('hidden')) open(); else close();
@@ -1153,6 +2713,37 @@ function initTeacherPanel() {
     });
 
     overlay.querySelector('#tp-close').addEventListener('click', close);
+
+    // Botão na Home (se existir) abre o painel do professor
+    try {
+        const homeBtn = document.getElementById('btn-open-teacher-panel');
+        if (homeBtn) {
+            homeBtn.addEventListener('click', () => {
+                try { open(); } catch (_) {}
+            });
+        }
+
+    // Vídeo de ajuda (mesmo vídeo da Home)
+    try {
+        const btnVideo = overlay.querySelector('#tp-video');
+        const openVideo = () => {
+            try {
+                if (typeof window.PET_OPEN_TUTORIAL_VIDEO === 'function') return window.PET_OPEN_TUTORIAL_VIDEO();
+                const hb = document.getElementById('btn-open-tutorial-video');
+                if (hb && typeof hb.click === 'function') hb.click();
+            } catch (_) {}
+        };
+        if (btnVideo) {
+            btnVideo.addEventListener('click', openVideo);
+            btnVideo.addEventListener('pointerup', (e) => {
+                if (e && e.pointerType && e.pointerType !== 'mouse') {
+                    try { openVideo(); } catch (_) {}
+                }
+            });
+        }
+    } catch (_) {}
+
+    } catch (_) {}
 
     // Toggles
     const btnProj = overlay.querySelector('#tp-projection');
@@ -1182,6 +2773,312 @@ function initTeacherPanel() {
     // Export / Import
     const exportBtn = overlay.querySelector('#tp-export');
     const importBtn = overlay.querySelector('#tp-import');
+
+    // Relatório CSV (sessões) com filtros
+    const csvOpSel = overlay.querySelector('#tp-fop');
+    const csvLvSel = overlay.querySelector('#tp-flv');
+    const csvClassSel = overlay.querySelector('#tp-fturma');
+    const csvStudentSel = overlay.querySelector('#tp-faluno');
+    const csvStart = overlay.querySelector('#tp-fstart');
+    const csvEnd = overlay.querySelector('#tp-fend');
+    const csvSummary = overlay.querySelector('#tp-report-summary');
+    const csvExportBtn = overlay.querySelector('#tp-export-csv');
+    const csvClearBtn = overlay.querySelector('#tp-clear-csv-filters');
+    const csvExportSessaoBtn = overlay.querySelector('#tp-export-csv-sessao');
+    const csvExportErrosBtn = overlay.querySelector('#tp-export-csv-erros');
+    const previewTbody = overlay.querySelector('#tp-preview-tbody');
+    const previewNote = overlay.querySelector('#tp-preview-note');
+
+    const fillSelect = (sel, options) => {
+        if (!sel) return;
+        sel.innerHTML = '';
+        options.forEach((opt) => {
+            const o = document.createElement('option');
+            o.value = opt.value;
+            o.textContent = opt.label;
+            sel.appendChild(o);
+        });
+    };
+
+    const initCsvFiltersOnce = () => {
+        try {
+            if (csvOpSel && csvOpSel.options && csvOpSel.options.length) return; // já preenchido
+
+            const opOptions = [
+                { value: 'all', label: 'Todas' },
+                { value: 'addition', label: 'Adição (+)' },
+                { value: 'subtraction', label: 'Subtração (-)' },
+                { value: 'multiplication', label: 'Multiplicação (×)' },
+                { value: 'division', label: 'Divisão (÷)' },
+                { value: 'potenciacao', label: 'Potenciação (aⁿ)' },
+                { value: 'radiciacao', label: 'Radiciação (√)' }
+            ];
+            const lvOptions = [
+                { value: 'all', label: 'Todos' },
+                { value: 'easy', label: 'Fácil' },
+                { value: 'medium', label: 'Médio' },
+                { value: 'advanced', label: 'Avançado' }
+            ];
+
+            fillSelect(csvOpSel, opOptions);
+            fillSelect(csvLvSel, lvOptions);
+
+            // Turma/Aluno: deriva do histórico (perfil) para permitir filtros sem cadastro extra
+            const histAll = loadPetSessionHistory();
+            const turmaSet = new Map(); // name -> name
+            const alunoSetByTurma = new Map(); // turma -> Set(aluno)
+
+            (Array.isArray(histAll) ? histAll : []).forEach((it) => {
+                const turma = String(it.className || it.profileTurma || '').trim();
+                const aluno = String(it.studentName || it.profileName || '').trim();
+                if (turma) {
+                    turmaSet.set(turma, turma);
+                    if (!alunoSetByTurma.has(turma)) alunoSetByTurma.set(turma, new Set());
+                    if (aluno) alunoSetByTurma.get(turma).add(aluno);
+                }
+            });
+
+            const turmaOptions = [{ value: 'all', label: 'Todas' }]
+                .concat(Array.from(turmaSet.values()).sort((a,b)=>a.localeCompare(b,'pt-BR')).map(t => ({ value: 'n:' + t, label: t })));
+
+            fillSelect(csvClassSel, turmaOptions);
+
+            const rebuildAlunoOptions = () => {
+                const tSel = csvClassSel ? String(csvClassSel.value || 'all') : 'all';
+                const opts = [{ value: 'all', label: 'Todos' }];
+                if (tSel !== 'all' && tSel.startsWith('n:')) {
+                    const turma = tSel.slice(2);
+                    const set = alunoSetByTurma.get(turma);
+                    if (set && set.size) {
+                        Array.from(set.values()).sort((a,b)=>a.localeCompare(b,'pt-BR')).forEach((a) => {
+                            opts.push({ value: 'n:' + a, label: a });
+                        });
+                    }
+                }
+                fillSelect(csvStudentSel, opts);
+            };
+
+            rebuildAlunoOptions();
+            if (csvClassSel) {
+                csvClassSel.addEventListener('change', () => {
+                    rebuildAlunoOptions();
+                });
+            }
+
+            // Padrão: últimos 30 dias
+            const today = petDateKeyLocal();
+            if (csvStart && !csvStart.value) csvStart.value = petAddDaysToKey(today, -30);
+            if (csvEnd && !csvEnd.value) csvEnd.value = today;
+        } catch (_) {}
+    };
+
+
+    const sessionTypeLabel = (t) => {
+        const type = String(t || '');
+        if (type === 'treino_erros') return 'Treino de Erros';
+        return 'Rodada';
+    };
+
+    const formatXPCell = (it) => {
+        const earned = Math.round(Number(it.xpEarned || 0));
+        const bonus = Math.round(Number(it.xpBonus || 0));
+        const total = earned + bonus;
+        if (bonus > 0) return `${total} (+${bonus})`;
+        return String(total);
+    };
+
+    const renderCsvPreview = (itemsDesc) => {
+        try {
+            if (!previewTbody) return;
+
+            const arr = Array.isArray(itemsDesc) ? itemsDesc : [];
+            const top = arr.slice(0, 30);
+
+            previewTbody.innerHTML = '';
+
+            if (!top.length) {
+                const tr = document.createElement('tr');
+                const td = document.createElement('td');
+                td.colSpan = 10;
+                td.className = 'tp-empty';
+                td.textContent = 'Nenhuma sessão encontrada com os filtros atuais.';
+                tr.appendChild(td);
+                previewTbody.appendChild(tr);
+                return;
+            }
+
+            top.forEach((it) => {
+                const tr = document.createElement('tr');
+
+                const cells = [
+                    formatDateBRFromTs(it.endedAt),
+                    formatTimeBR(it.endedAt),
+                    sessionTypeLabel(it.sessionType),
+                    (it.operationLabel || it.operation || ''),
+                    (it.levelLabel || it.level || ''),
+                    (it.modeLabel || it.mode || ''),
+                    String(it.answered ?? ''),
+                    (it.accuracy == null ? '' : `${numBR(it.accuracy, 1)}%`),
+                    (it.avgSec == null ? '' : `${numBR(it.avgSec, 1)}s`),
+                    formatXPCell(it)
+                ];
+
+                cells.forEach((val, i) => {
+                    const td = document.createElement('td');
+                    if (i === 2) {
+                        const span = document.createElement('span');
+                        span.className = 'tp-pill ' + (String(it.sessionType) === 'treino_erros' ? 'tp-pill-warn' : 'tp-pill-ok');
+                        span.textContent = val;
+                        td.appendChild(span);
+                    } else {
+                        td.textContent = val;
+                    }
+                    tr.appendChild(td);
+                });
+
+                previewTbody.appendChild(tr);
+            });
+        } catch (_) {}
+    };
+    const updateCsvSummary = () => {
+        try {
+            if (!csvSummary) return;
+            const hist = loadPetSessionHistory();
+            const filtered = filterPetSessionHistory(hist, {
+                operation: csvOpSel ? csvOpSel.value : 'all',
+                level: csvLvSel ? csvLvSel.value : 'all',
+                classKey: csvClassSel ? csvClassSel.value : 'all',
+                studentKey: csvStudentSel ? csvStudentSel.value : 'all',
+                startDate: csvStart ? csvStart.value : '',
+                endDate: csvEnd ? csvEnd.value : ''
+            });
+
+            // Contagem por tipo (rodadas vs treino de erros)
+            let countRodadas = 0;
+            let countTreinos = 0;
+            filtered.forEach((it) => {
+                const t = String(it.sessionType || '');
+                if (t === 'treino_erros') countTreinos += 1;
+                else countRodadas += 1;
+            });
+
+            const s = summarizePetSessions(filtered);
+            const avgAcc = (s.avgAccuracy == null) ? '-' : `${numBR(s.avgAccuracy, 1)}%`;
+            const avgSec = (s.avgSec == null) ? '-' : `${numBR(s.avgSec, 1)}s`;
+            const first = s.firstTs ? formatDateBRFromTs(s.firstTs) : '-';
+            const last = s.lastTs ? formatDateBRFromTs(s.lastTs) : '-';
+
+            csvSummary.textContent =
+                `Sessões no filtro: ${s.sessions} (Rodadas: ${countRodadas} | Treino de erros: ${countTreinos}) | ` +
+                `Questões: ${s.totalAnswered} | Precisão média: ${avgAcc} | Tempo médio: ${avgSec} | Período: ${first} → ${last}`;
+
+            // Prévia (top 30)
+            try { renderCsvPreview(filtered); } catch (_) {}
+
+            // Nota contextual
+            try {
+                if (previewNote) {
+                    previewNote.textContent = `Mostrando as últimas ${Math.min(30, filtered.length)} sessão(ões) do filtro (máx. 30). Para análise completa, exporte o CSV.`;
+                }
+            } catch (_) {}
+        } catch (_) {
+            try {
+                if (csvSummary) csvSummary.textContent = 'Selecione filtros e exporte o relatório. (Dados locais deste dispositivo.)';
+            } catch (_) {}
+            try { renderCsvPreview([]); } catch (_) {}
+        }
+    };
+
+    const clearCsvFilters = () => {
+        try {
+            if (csvOpSel) csvOpSel.value = 'all';
+            if (csvLvSel) csvLvSel.value = 'all';
+            if (csvClassSel) csvClassSel.value = 'all';
+            if (csvStudentSel) csvStudentSel.value = 'all';
+            if (csvStart) csvStart.value = '';
+            if (csvEnd) csvEnd.value = '';
+            updateCsvSummary();
+        } catch (_) {}
+    };
+
+    // Mantém o resumo sempre atualizado
+    const bindCsvInputs = () => {
+        [csvOpSel, csvLvSel, csvClassSel, csvStudentSel, csvStart, csvEnd].forEach((el) => {
+            if (!el) return;
+            el.addEventListener('change', updateCsvSummary);
+        });
+        if (csvClearBtn) csvClearBtn.addEventListener('click', clearCsvFilters);
+        if (csvExportBtn) {
+            csvExportBtn.addEventListener('click', () => {
+                try {
+                    const hist = loadPetSessionHistory();
+                    const filtered = filterPetSessionHistory(hist, {
+                        operation: csvOpSel ? csvOpSel.value : 'all',
+                        level: csvLvSel ? csvLvSel.value : 'all',
+                        classKey: csvClassSel ? csvClassSel.value : 'all',
+                studentKey: csvStudentSel ? csvStudentSel.value : 'all',
+                startDate: csvStart ? csvStart.value : '',
+                        endDate: csvEnd ? csvEnd.value : ''
+                    });
+                    const today = petDateKeyLocal();
+                    const opTag = (csvOpSel && csvOpSel.value !== 'all') ? csvOpSel.value : 'todas';
+                    const lvTag = (csvLvSel && csvLvSel.value !== 'all') ? csvLvSel.value : 'todos';
+                    const filename = `PET_relatorio_sessoes_${today}_op-${opTag}_nv-${lvTag}.csv`;
+                    exportPetSessionHistoryCSVUsingItems(filtered, { filename });
+                } catch (_) {
+                    try { PET_LEVEL1_UI.showToast('Não foi possível exportar o relatório filtrado.', { type: 'error', timeout: 3000 }); } catch (_) {}
+                }
+            });
+        }
+
+        if (csvExportSessaoBtn) {
+            csvExportSessaoBtn.addEventListener('click', () => {
+                try {
+                    const hist = loadPetSessionHistory();
+                    const filtered = filterPetSessionHistory(hist, {
+                        operation: csvOpSel ? csvOpSel.value : 'all',
+                        level: csvLvSel ? csvLvSel.value : 'all',
+                        classKey: csvClassSel ? csvClassSel.value : 'all',
+                studentKey: csvStudentSel ? csvStudentSel.value : 'all',
+                startDate: csvStart ? csvStart.value : '',
+                        endDate: csvEnd ? csvEnd.value : ''
+                    }).filter(it => String(it.sessionType || '') === 'sessao');
+
+                    const today = petDateKeyLocal();
+                    const opTag = (csvOpSel && csvOpSel.value !== 'all') ? csvOpSel.value : 'todas';
+                    const lvTag = (csvLvSel && csvLvSel.value !== 'all') ? csvLvSel.value : 'todos';
+                    const filename = `PET_relatorio_rodadas_${today}_op-${opTag}_nv-${lvTag}.csv`;
+                    exportPetSessionHistoryCSVUsingItems(filtered, { filename });
+                } catch (_) {
+                    try { PET_LEVEL1_UI.showToast('Não foi possível exportar apenas as rodadas.', { type: 'error', timeout: 3000 }); } catch (_) {}
+                }
+            });
+        }
+
+        if (csvExportErrosBtn) {
+            csvExportErrosBtn.addEventListener('click', () => {
+                try {
+                    const hist = loadPetSessionHistory();
+                    const filtered = filterPetSessionHistory(hist, {
+                        operation: csvOpSel ? csvOpSel.value : 'all',
+                        level: csvLvSel ? csvLvSel.value : 'all',
+                        classKey: csvClassSel ? csvClassSel.value : 'all',
+                studentKey: csvStudentSel ? csvStudentSel.value : 'all',
+                startDate: csvStart ? csvStart.value : '',
+                        endDate: csvEnd ? csvEnd.value : ''
+                    }).filter(it => String(it.sessionType || '') === 'treino_erros');
+
+                    const today = petDateKeyLocal();
+                    const opTag = (csvOpSel && csvOpSel.value !== 'all') ? csvOpSel.value : 'todas';
+                    const lvTag = (csvLvSel && csvLvSel.value !== 'all') ? csvLvSel.value : 'todos';
+                    const filename = `PET_relatorio_treino_erros_${today}_op-${opTag}_nv-${lvTag}.csv`;
+                    exportPetSessionHistoryCSVUsingItems(filtered, { filename });
+                } catch (_) {
+                    try { PET_LEVEL1_UI.showToast('Não foi possível exportar apenas o treino de erros.', { type: 'error', timeout: 3000 }); } catch (_) {}
+                }
+            });
+        }
+    };
 
     const downloadTextFile = (filename, text) => {
         const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
@@ -1222,6 +3119,23 @@ function initTeacherPanel() {
             reader.onload = () => {
                 try {
                     const data = JSON.parse(String(reader.result || '{}'));
+                    // ✅ Importação de progresso do ALUNO (exportado na Área do Estudante)
+                    try {
+                        if (data && data.petStudentExport === true && Array.isArray(data.sessionHistory)) {
+                            const existing = loadPetSessionHistory();
+                            const seen = new Set((existing || []).map(it => String(it.id || it.endedAt || '')));
+                            const incoming = data.sessionHistory.filter(it => {
+                                const k = String(it.id || it.endedAt || '');
+                                if (!k || seen.has(k)) return false;
+                                seen.add(k);
+                                return true;
+                            });
+                            const merged = (existing || []).concat(incoming);
+                            savePetSessionHistory(merged);
+                            try { showFeedbackMessage('Progresso do aluno importado! (Sessões adicionadas ao relatório)', 'success'); } catch (_) {}
+                            // Não retorna: ainda pode importar backup do professor no mesmo arquivo? (mantemos continuidade)
+                        }
+                    } catch (_) {}
                     if (data.xp != null) { gameState.xp = Number(data.xp) || 0; localStorage.setItem('matemagica_xp', String(gameState.xp)); }
                     if (Array.isArray(data.errors)) { gameState.errors = data.errors; salvarErros(); }
                     if (Array.isArray(data.highScores)) { gameState.highScores = data.highScores; salvarRanking(); }
@@ -1247,13 +3161,364 @@ function initTeacherPanel() {
             localStorage.removeItem('matemagica_errors');
             localStorage.removeItem(RANKING_STORAGE_KEY);
             localStorage.removeItem(TEACHER_PREFS_KEY);
+            // Também remove sessão em andamento (se existir)
+            localStorage.removeItem(PET_SESSION_KEY);
         } catch {}
         showFeedbackMessage('Dados apagados. Recarregando...', 'info', 2000);
         setTimeout(() => location.reload(), 700);
     });
 
+    // Inicializa e liga o relatório CSV (sessões)
+    try { initCsvFiltersOnce(); } catch (_) {}
+    try { bindCsvInputs(); } catch (_) {}
+    try { updateCsvSummary(); } catch (_) {}
+
     refreshBtnStates();
 }
+
+
+function initStudentPanel() {
+    // Evita duplicar
+    if (document.getElementById('student-panel-overlay')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'student-panel-overlay';
+    overlay.className = 'teacher-overlay hidden';
+    overlay.setAttribute('aria-hidden', 'true');
+
+    overlay.innerHTML = `
+      <div class="teacher-panel" role="dialog" aria-modal="true" aria-label="Área do Estudante">
+        <div class="teacher-panel-header">
+          <h2>Área do Estudante</h2>
+          <button id="sp-close" class="btn-secondary" type="button">Fechar</button>
+        </div>
+
+        <div class="teacher-panel-section">
+          <h3>Seu resumo (últimos 7 dias)</h3>
+          <div class="tp-filter-grid" aria-label="Resumo dos últimos 7 dias">
+            <div class="tp-field">
+              <div class="tp-label">Sessões</div>
+              <div class="tp-input" id="sp-kv-sessions" aria-label="Sessões nos últimos 7 dias">0</div>
+            </div>
+            <div class="tp-field">
+              <div class="tp-label">Precisão média</div>
+              <div class="tp-input" id="sp-kv-acc" aria-label="Precisão média nos últimos 7 dias">—</div>
+            </div>
+            <div class="tp-field">
+              <div class="tp-label">Tempo médio</div>
+              <div class="tp-input" id="sp-kv-sec" aria-label="Tempo médio por questão">—</div>
+            </div>
+            <div class="tp-field">
+              <div class="tp-label">Sequência</div>
+              <div class="tp-input" id="sp-kv-streak" aria-label="Sequência de dias estudados">0</div>
+            </div>
+          </div>
+
+          <p id="sp-insight" class="teacher-help">—</p>
+
+          <div class="teacher-row" style="margin-top:10px;">
+            <button id="sp-read" class="btn-action btn-secondary" type="button" title="Ler o resumo em voz alta (se o áudio do dispositivo permitir).">🔊 Ler meu resumo</button>
+            <button id="sp-video" class="btn-action btn-secondary" type="button" title="Assistir vídeo curto explicando as funções do PET.">🎥 Ajuda em vídeo</button>
+          </div>
+        </div>
+
+        <div class="teacher-panel-section">
+          <h3>Dicas do seu desempenho</h3>
+          <div class="tp-preview" aria-label="Dicas e pontos de atenção">
+            <div class="tp-preview-title"><strong>Foco recomendado</strong></div>
+            <div id="sp-focus" class="teacher-help">—</div>
+            <div class="tp-preview-title" style="margin-top:10px;"><strong>Você está indo bem em</strong></div>
+            <div id="sp-strong" class="teacher-help">—</div>
+          </div>
+        </div>
+
+        <div class="teacher-panel-section">
+          <h3>Exportar para o professor</h3>
+          <div class="teacher-row">
+            <button id="sp-export" class="btn-action btn-secondary" type="button" title="Baixa um arquivo (.json) para enviar ao professor (WhatsApp/e-mail).">📤 Baixar progresso (JSON)</button>
+            <button id="sp-copy" class="btn-action btn-secondary" type="button" title="Copia um código compacto do seu progresso para colar e enviar ao professor.">📋 Copiar código</button>
+          </div>
+          <p class="teacher-help">
+            Seus dados ficam <strong>somente neste dispositivo</strong>. Ao exportar, você escolhe quando compartilhar com o professor.
+          </p>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    let lastFocusEl = null;
+
+    const isOpen = () => !overlay.classList.contains('hidden');
+
+    const close = () => {
+        overlay.classList.add('hidden');
+        overlay.setAttribute('aria-hidden', 'true');
+        try { if (lastFocusEl && lastFocusEl.focus) lastFocusEl.focus(); } catch (_) {}
+        lastFocusEl = null;
+    };
+
+    const open = () => {
+        lastFocusEl = document.activeElement;
+        refreshStudentPanel();
+        overlay.classList.remove('hidden');
+        overlay.setAttribute('aria-hidden', 'false');
+        try { overlay.querySelector('#sp-close')?.focus(); } catch (_) {}
+    };
+
+    // fechar ao clicar fora do painel
+    overlay.addEventListener('click', (e) => {
+        try { if (e.target === overlay) close(); } catch (_) {}
+    });
+
+    overlay.querySelector('#sp-close')?.addEventListener('click', close);
+
+    // ESC fecha
+    document.addEventListener('keydown', (e) => {
+        if (!isOpen()) return;
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            close();
+        }
+    });
+
+    // Focus trap simples (Tab)
+    overlay.addEventListener('keydown', (e) => {
+        if (e.key !== 'Tab') return;
+        if (!isOpen()) return;
+        const focusables = overlay.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+        const list = Array.from(focusables).filter(el => !el.disabled && el.offsetParent !== null);
+        if (!list.length) return;
+        const first = list[0];
+        const last = list[list.length - 1];
+        const active = document.activeElement;
+        if (e.shiftKey && active === first) {
+            e.preventDefault();
+            last.focus();
+        } else if (!e.shiftKey && active === last) {
+            e.preventDefault();
+            first.focus();
+        }
+    });
+
+    // Botão na Home abre a área do estudante
+    try {
+        const homeBtn = document.getElementById('btn-open-student-panel');
+        if (homeBtn) homeBtn.addEventListener('click', () => { try { open(); } catch (_) {} });
+
+    // Vídeo de ajuda (mesmo vídeo da Home)
+    try {
+        const btnVideo = overlay.querySelector('#sp-video');
+        const openVideo = () => {
+            try {
+                if (typeof window.PET_OPEN_TUTORIAL_VIDEO === 'function') return window.PET_OPEN_TUTORIAL_VIDEO();
+                const hb = document.getElementById('btn-open-tutorial-video');
+                if (hb && typeof hb.click === 'function') hb.click();
+            } catch (_) {}
+        };
+        if (btnVideo) {
+            btnVideo.addEventListener('click', openVideo);
+            btnVideo.addEventListener('pointerup', (e) => {
+                if (e && e.pointerType && e.pointerType !== 'mouse') {
+                    try { openVideo(); } catch (_) {}
+                }
+            });
+        }
+    } catch (_) {}
+
+    } catch (_) {}
+
+    // Ler resumo
+    overlay.querySelector('#sp-read')?.addEventListener('click', () => {
+        try {
+            const sessions = overlay.querySelector('#sp-kv-sessions')?.textContent || '';
+            const acc = overlay.querySelector('#sp-kv-acc')?.textContent || '';
+            const sec = overlay.querySelector('#sp-kv-sec')?.textContent || '';
+            const streak = overlay.querySelector('#sp-kv-streak')?.textContent || '';
+            const insight = overlay.querySelector('#sp-insight')?.textContent || '';
+            const msg = `Seu resumo dos últimos 7 dias. Sessões: ${sessions}. Precisão média: ${acc}. Tempo médio: ${sec}. Sequência: ${streak} dias. ${insight}`;
+            if (typeof speak === 'function') speak(msg);
+        } catch (_) {}
+    });
+
+    // Exportar JSON
+    overlay.querySelector('#sp-export')?.addEventListener('click', () => {
+        try {
+            const payload = buildStudentExportPayload();
+            downloadTextFile('pet_progresso_aluno.json', JSON.stringify(payload, null, 2), 'application/json;charset=utf-8');
+            try { showFeedbackMessage('Progresso exportado! Envie o arquivo ao professor.', 'success'); } catch (_) {}
+        } catch (_) {
+            try { showFeedbackMessage('Não foi possível exportar agora.', 'error'); } catch (_) {}
+        }
+    });
+
+    // Copiar código
+    overlay.querySelector('#sp-copy')?.addEventListener('click', async () => {
+        try {
+            const payload = buildStudentExportCodePayload();
+            const code = encodeStudentExportCode(payload);
+            try {
+                await navigator.clipboard.writeText(code);
+                try { showFeedbackMessage('Código copiado! Cole e envie ao professor.', 'success'); } catch (_) {}
+            } catch (_) {
+                // fallback: prompt
+                window.prompt('Copie o código abaixo e envie ao professor:', code);
+            }
+        } catch (_) {
+            try { showFeedbackMessage('Não foi possível copiar o código.', 'error'); } catch (_) {}
+        }
+    });
+
+    // helpers locais para download e código (reaproveita do professor se existir)
+    function downloadTextFile(filename, text, mime) {
+        const blob = new Blob([text], { type: mime || 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 500);
+    }
+
+    function encodeStudentExportCode(payload) {
+        try {
+            const jsonStr = JSON.stringify(payload);
+            // btoa seguro para unicode
+            const utf8 = encodeURIComponent(jsonStr).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode(parseInt(p1, 16)));
+            const b64 = btoa(utf8);
+
+            // Base64 URL-safe (melhor para WhatsApp) e sem padding
+            return 'PET.' + b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+        } catch (_) {
+            return '';
+        }
+    }
+
+    // Payload compacto para o "Copiar código" (curto e importável).
+    function buildStudentExportCodePayload() {
+        const full = buildStudentExportPayload();
+        const now = Date.now();
+        const maxDays = 14;
+        const cutoff = now - (maxDays * 24 * 60 * 60 * 1000);
+
+        const opMap = {
+            addition: 'a',
+            subtraction: 's',
+            multiplication: 'm',
+            division: 'd',
+            exponentiation: 'p',
+            radication: 'r'
+        };
+        const lvlMap = { easy: 'e', medium: 'm', advanced: 'a' };
+
+        const history = Array.isArray(full.sessionHistory) ? full.sessionHistory : [];
+        const recent = history
+            .filter(it => Number(it.endedAt || 0) >= cutoff)
+            .slice(0, 50); // limita para manter curto
+
+        const sessions = recent.map(it => {
+            const endedAt = Number(it.endedAt || 0);
+            const dayAgo = Math.max(0, Math.min(maxDays, Math.floor((now - endedAt) / (24 * 60 * 60 * 1000))));
+            const op = opMap[String(it.operation || '')] || 'x';
+            const lvl = lvlMap[String(it.level || '')] || 'm';
+            const acc10 = Math.round((Number(it.accuracy || 0)) * 10);      // % em décimos
+            const sec10 = (it.avgSec == null) ? -1 : Math.round((Number(it.avgSec || 0)) * 10);
+            const ans = Math.max(0, Math.round(Number(it.answered || 0)));
+            const hit = Math.max(0, Math.round(Number(it.hits || 0)));
+            const mis = Math.max(0, Math.round(Number(it.misses || 0)));
+            const fast = String(it.mode || '') === 'rapido' ? 1 : 0;
+            return [dayAgo, op, lvl, acc10, sec10, ans, hit, mis, fast];
+        });
+
+        return {
+            v: 1,                 // versão do código
+            t: now,               // export timestamp
+            av: String(full.appVersion || ''),
+            p: [String(full.profile?.name || ''), String(full.profile?.turma || ''), String(full.profile?.escola || '')],
+            pr: [Number(full.progress?.streak || 0) || 0, Number(full.progress?.xp || 0) || 0],
+            s: sessions
+        };
+    }
+
+    function buildStudentExportPayload() {
+        const history = (typeof loadPetSessionHistory === 'function') ? loadPetSessionHistory() : [];
+        const progress = (typeof loadPetProgress === 'function') ? loadPetProgress() : {};
+        const profile = (typeof getStudentProfile === 'function') ? (getStudentProfile() || {}) : {};
+        return {
+            petStudentExport: true,
+            exportedAt: Date.now(),
+            appVersion: (document.body.getAttribute('data-version') || ''),
+            profile: {
+                name: String(profile.name || ''),
+                turma: String(profile.turma || ''),
+                escola: String(profile.escola || '')
+            },
+            progress,
+            sessionHistory: Array.isArray(history) ? history : []
+        };
+    }
+
+    function refreshStudentPanel() {
+        try {
+            const history = (typeof loadPetSessionHistory === 'function') ? loadPetSessionHistory() : [];
+            const now = Date.now();
+            const weekAgo = now - (7 * 24 * 60 * 60 * 1000);
+            const last7 = Array.isArray(history) ? history.filter(it => Number(it.endedAt || 0) >= weekAgo) : [];
+            const sum = (typeof summarizePetSessions === 'function') ? summarizePetSessions(last7.slice().reverse()) : { sessions: last7.length };
+
+            // streak
+            let streak = 0;
+            try { streak = Number((typeof loadPetProgress === 'function' ? loadPetProgress() : {}).streak || 0) || 0; } catch (_) {}
+
+            overlay.querySelector('#sp-kv-sessions').textContent = String(sum.sessions || 0);
+            overlay.querySelector('#sp-kv-acc').textContent = (sum.avgAccuracy == null) ? '—' : `${Math.round(sum.avgAccuracy * 10) / 10}%`;
+            overlay.querySelector('#sp-kv-sec').textContent = (sum.avgSec == null) ? '—' : `${Math.round(sum.avgSec * 10) / 10}s`;
+            overlay.querySelector('#sp-kv-streak').textContent = String(streak);
+
+            // dificuldades: por maior misses e menor acurácia
+            const worst = last7
+                .filter(it => Number(it.answered || 0) >= 5)
+                .sort((a,b) => (Number(b.misses||0) - Number(a.misses||0)) || (Number(a.accuracy||0) - Number(b.accuracy||0)))
+                .slice(0,3);
+
+            const best = last7
+                .filter(it => Number(it.answered || 0) >= 5)
+                .sort((a,b) => (Number(b.accuracy||0) - Number(a.accuracy||0)) || (Number(b.hits||0) - Number(a.hits||0)))
+                .slice(0,3);
+
+            const fmt = (it) => {
+                const op = String(it.operationLabel || it.operation || '');
+                const lv = String(it.levelLabel || it.level || '');
+                const acc = (it.accuracy == null) ? '' : ` — ${Math.round(Number(it.accuracy||0)*10)/10}%`;
+                return `${op} • ${lv}${acc}`;
+            };
+
+            const focusText = worst.length
+                ? `Priorize: ${worst.map(fmt).join(' | ')}. Sugestão: treine no Modo Estudo e faça 10 questões sem pressa.`
+                : `Você não tem dados suficientes dos últimos 7 dias. Faça 1–2 sessões no Modo Estudo para gerar um diagnóstico.`;
+
+            const strongText = best.length
+                ? `${best.map(fmt).join(' | ')}. Continue mantendo a consistência!`
+                : `—`;
+
+            overlay.querySelector('#sp-focus').textContent = focusText;
+            overlay.querySelector('#sp-strong').textContent = strongText;
+
+            // insight curto
+            const insight = (sum.sessions || 0) === 0
+                ? 'Sem sessões nos últimos 7 dias. Uma sessão curta hoje já reativa sua sequência.'
+                : (sum.avgAccuracy != null && sum.avgAccuracy < 70)
+                    ? 'Sua precisão está abaixo de 70%. Use o Modo Estudo para entender o passo a passo.'
+                    : 'Bom trabalho! Mantenha consistência e tente melhorar um pouco o tempo, sem perder precisão.';
+
+            overlay.querySelector('#sp-insight').textContent = insight;
+        } catch (_) {}
+    }
+}
+
+
 
 
 /** Atualiza a interface (botão e lista) de treinamento de erros. */
@@ -1454,10 +3719,25 @@ function startErrorTraining() {
     gameState.score = 0;
     gameState.acertos = 0;
     gameState.erros = 0;
+
+    // Prioridade 2/3: zera métricas da sessão
+    gameState.xpGainedRound = 0;
+    gameState.__summaryShown = false;
+    gameState.__petProgressUpdate = null;
+    gameState.__petStreakRewardApplied = false;
+
+// Prioridade 2: métricas da sessão (para resumo pós-sessão)
+    gameState.totalAnswerTimeMs = 0;
+    gameState.questionsAnswered = 0;
+    gameState.questionStartedAt = Date.now();
+    gameState.__summaryShown = false;
     gameState.isGameActive = true;
     gameState.xpGainedRound = 0;
     gameState.isTrainingErrors = false;
     gameState.attemptsThisQuestion = 0;
+
+    // Prioridade 2: marca início da questão (para tempo médio)
+    gameState.questionStartedAt = Date.now();
     if (btnShowAnswer) btnShowAnswer.disabled = false;
     if (btnExtendTime) btnExtendTime.disabled = false;
 
@@ -1509,7 +3789,62 @@ function endTraining() {
     if (btnExtendTime) btnExtendTime.disabled = false;
 
     showFeedbackMessage('Treinamento concluído! 🎯', 'success', 2500);
+    
+    // Prioridade 3: atualiza sequência + conquistas ao concluir sessão
+    try {
+        const attemptsTotal3 = Math.max(1, Number(gameState.acertos || 0) + Number(gameState.erros || 0));
+        const accuracy3 = (Number(gameState.acertos || 0) / attemptsTotal3) * 100;
+        const answered3 = (Number.isFinite(gameState.totalQuestions) && gameState.totalQuestions !== Infinity)
+            ? Number(gameState.totalQuestions)
+            : Number(gameState.questionNumber || 0);
+
+        const upd = updatePetProgressOnSessionEnd({
+            answered: answered3,
+            accuracy: Math.round(accuracy3 * 10) / 10,
+            mode: gameState.isRapidMode ? 'rapid' : 'study'
+        });
+
+        gameState.__petProgressUpdate = upd;
+
+        // Recompensa de sequência (XP bônus)
+        try {
+            const bonus = applyPetStreakRewardIfAny(upd);
+            try { gameState.__petBonusXpApplied = bonus; } catch (_) {}
+            if (bonus > 0) {
+                try {
+                    const lbl = (upd.streakReward && upd.streakReward.label) ? upd.streakReward.label : 'sequência';
+                    PET_LEVEL1_UI.showToast(`🎁 Bônus de sequência: +${bonus} XP (${lbl})`);
+                } catch (_) {}
+            }
+        } catch (_) {}
+
+        if (upd && Array.isArray(upd.newlyUnlocked) && upd.newlyUnlocked.length) {
+            const cat = getPetBadgeCatalog();
+            const names = upd.newlyUnlocked
+                .map(id => (cat.find(b => b.id === id)?.title) || id)
+                .slice(0, 3);
+
+            try {
+                if (upd.newlyUnlocked.length === 1) {
+                    PET_LEVEL1_UI.showToast(`🎖 Nova conquista: ${names[0]}`);
+                } else {
+                    PET_LEVEL1_UI.showToast(`🎖 ${upd.newlyUnlocked.length} conquistas desbloqueadas!`);
+                }
+            } catch (_) {}
+        } else if (upd && upd.streakChanged) {
+            try { PET_LEVEL1_UI.showToast(`🔥 Sequência: ${Number(upd.progress?.streak || 0)} dia(s)`); } catch (_) {}
+        }
+    } catch (_) {}
+
+    try { recordPetCompletedSession({ sessionType: 'treino_erros', upd: gameState.__petProgressUpdate, bonusApplied: Number(gameState.__petBonusXpApplied || 0) }); } catch (_) {}
+
     exibirTela('result-screen');
+    // Prioridade 3+: mostra recompensas/conquistas desta sessão na tela de resultado
+    try { setTimeout(() => { renderPetSessionRewardsOnResultScreen(); }, 80); } catch (_) {}
+
+
+    // Prioridade 2: mostra resumo pós-sessão (modal)
+    try { setTimeout(() => { maybeShowSessionSummary(xpGained); }, 350); } catch (_) {}
 }
 
 
@@ -1550,18 +3885,49 @@ function rangeInclusive(min, max) {
 function getTabuadaRangeByLevel(level) {
     switch (level) {
         case 'easy':
-            // Fácil: tabuadas 0–5, multiplicadores 0–10
-            return { min: 0, max: 5, multMin: 0, multMax: 10, label: 'Fácil (0–5 | ×0–10)' };
+            // Fácil: tabuadas 1–5, multiplicadores 1–10
+            return { min: 1, max: 5, multMin: 1, multMax: 10, label: 'Fácil (1–5 | ×1–10)' };
         case 'medium':
-            // Médio: tabuadas 6–10, multiplicadores 0–10
-            return { min: 6, max: 10, multMin: 0, multMax: 10, label: 'Médio (6–10 | ×0–10)' };
+            // Médio: tabuadas 6–10, multiplicadores 1–10
+            return { min: 6, max: 10, multMin: 1, multMax: 10, label: 'Médio (6–10 | ×1–10)' };
         case 'advanced':
-            // Difícil: tabuadas 11–20, multiplicadores 0–20
-            return { min: 11, max: 20, multMin: 0, multMax: 20, label: 'Difícil (11–20 | ×0–20)' };
+            // Avançado: tabuadas 11–20, multiplicadores 1–20
+            return { min: 11, max: 20, multMin: 1, multMax: 20, label: 'Avançado (11–20 | ×1–20)' };
         default:
-            return { min: 0, max: 20, multMin: 0, multMax: 20, label: 'Completo (0–20 | ×0–20)' };
+            return { min: 1, max: 20, multMin: 1, multMax: 20, label: 'Completo (1–20 | ×1–20)' };
     }
 }
+
+// Garante que a configuração de multiplicação respeita as faixas exigidas (sem 0).
+function sanitizeMultiplicationConfig() {
+    try {
+        // defaults seguros
+        if (!Number.isInteger(gameState.multiplication.multMin)) gameState.multiplication.multMin = 1;
+        if (!Number.isInteger(gameState.multiplication.multMax)) gameState.multiplication.multMax = 10;
+        if (!Number.isInteger(gameState.multiplication.trailMin)) gameState.multiplication.trailMin = 6;
+        if (!Number.isInteger(gameState.multiplication.trailMax)) gameState.multiplication.trailMax = 10;
+
+        // sem zeros
+        gameState.multiplication.multMin = Math.max(1, gameState.multiplication.multMin);
+        gameState.multiplication.multMax = Math.max(gameState.multiplication.multMin, gameState.multiplication.multMax);
+
+        gameState.multiplication.trailMin = Math.max(1, gameState.multiplication.trailMin);
+        gameState.multiplication.trailMax = Math.max(gameState.multiplication.trailMin, gameState.multiplication.trailMax);
+
+        // limites máximos
+        gameState.multiplication.multMax = Math.min(20, gameState.multiplication.multMax);
+        gameState.multiplication.trailMax = Math.min(20, gameState.multiplication.trailMax);
+        gameState.multiplication.trailMin = Math.min(20, gameState.multiplication.trailMin);
+
+        // tabuada direta
+        if (!Number.isInteger(gameState.multiplication.tabuada)) gameState.multiplication.tabuada = 7;
+        gameState.multiplication.tabuada = Math.min(20, Math.max(1, gameState.multiplication.tabuada));
+
+        // chave
+        gameState.multiplication.trailRangeKey = `${gameState.multiplication.trailMin}-${gameState.multiplication.trailMax}|${gameState.multiplication.multMin}-${gameState.multiplication.multMax}`;
+    } catch (_) {}
+}
+
 
 function loadMultiplicationConfig() {
     try {
@@ -1575,18 +3941,22 @@ function loadMultiplicationConfig() {
 
         if (Number.isInteger(cfg.trailMin)) gameState.multiplication.trailMin = cfg.trailMin;
         if (Number.isInteger(cfg.trailMax)) gameState.multiplication.trailMax = cfg.trailMax;
+
         if (Number.isInteger(cfg.multMin)) gameState.multiplication.multMin = cfg.multMin;
         if (Number.isInteger(cfg.multMax)) gameState.multiplication.multMax = cfg.multMax;
 
         // chave (tabuadas|multiplicadores)
         if (typeof cfg.trailRangeKey === 'string') gameState.multiplication.trailRangeKey = cfg.trailRangeKey;
 
+        // Sanitiza para garantir faixas sem 0
+        sanitizeMultiplicationConfig();
+
         // trilha (pares)
-        const tabMin = Number.isInteger(gameState.multiplication.trailMin) ? gameState.multiplication.trailMin : 0;
+        const tabMin = Number.isInteger(gameState.multiplication.trailMin) ? gameState.multiplication.trailMin : 1;
         const tabMax = Number.isInteger(gameState.multiplication.trailMax) ? gameState.multiplication.trailMax : 20;
-        const multMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 0;
+        const multMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 1;
         const multMax = Number.isInteger(gameState.multiplication.multMax) ? gameState.multiplication.multMax : 20;
-        const expectedLen = Math.max(0, (tabMax - tabMin + 1)) * Math.max(0, (multMax - multMin + 1));
+        const expectedLen = getTrailTargetSize(tabMin, tabMax, multMin, multMax);
 
         if (Array.isArray(cfg.trailPairs) && cfg.trailPairs.length === expectedLen) {
             gameState.multiplication.trailPairs = cfg.trailPairs;
@@ -1624,37 +3994,178 @@ function saveMultiplicationConfig() {
     }
 }
 
-function buildTrailPairs(tabMin, tabMax, multMin, multMax) {
+
+
+// --- Multiplicação (Trilha) — Priorizar revisões pelo erro do aluno ---
+function getMultiplicationErrorMapForRange(tabMin, tabMax, multMin, multMax) {
+    const counts = new Map();   // contagem bruta (quantas vezes errou)
+    const scores = new Map();   // pontuação ponderada por recência (mais recente = pesa mais)
+    const lastTs = new Map();   // último timestamp por par
+    const errs = Array.isArray(gameState.errors) ? gameState.errors : [];
+
+    // Meia-vida (recência): erros "perdem força" pela metade a cada 7 dias.
+    const HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000;
+
+    function recencyWeight(ts, idx, total) {
+        // Peso base 1.0 + bônus até 1.5 (máx 2.5) quando é muito recente
+        const base = 1.0;
+        const bonusMax = 1.5;
+
+        if (Number.isFinite(ts) && ts > 0) {
+            const age = Math.max(0, Date.now() - ts);
+            // decai exponencialmente: 1.0 agora, 0.5 em 7 dias, 0.25 em 14 dias...
+            const decay = Math.pow(0.5, age / HALF_LIFE_MS);
+            return base + (bonusMax * decay);
+        }
+
+        // Fallback para erros antigos sem timestamp:
+        // como o array é mantido com erros mais recentes na frente (unshift),
+        // damos mais peso para índices menores (mais recentes).
+        const denom = Math.max(1, (total - 1));
+        const fracRecent = 1 - (idx / denom); // 1.0 (mais recente) → 0.0 (mais antigo)
+        return base + (bonusMax * fracRecent);
+    }
+
+    for (let i = 0; i < errs.length; i++) {
+        const e = errs[i];
+        if (!e) continue;
+        const op = String(e.operation || e.operacao || '');
+        if (op !== 'multiplication') continue;
+
+        let a = Number(e.num1);
+        let b = Number(e.num2);
+
+        // Fallback: tenta extrair do texto (para erros antigos que não tinham num1/num2)
+        if (!Number.isFinite(a) || !Number.isFinite(b)) {
+            const m = String(e.question || '').match(/(\d+)\s*[x×]\s*(\d+)/i);
+            if (m) {
+                a = Number(m[1]);
+                b = Number(m[2]);
+            }
+        }
+
+        if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+        if (a < tabMin || a > tabMax) continue;
+        if (b < multMin || b > multMax) continue;
+
+        const k = `${a}x${b}`;
+        counts.set(k, (counts.get(k) || 0) + 1);
+
+        const ts = Number(e.timestamp || 0);
+        if (!lastTs.has(k) || ts > lastTs.get(k)) lastTs.set(k, ts);
+
+        const w = recencyWeight(ts, i, errs.length);
+        scores.set(k, (scores.get(k) || 0) + w);
+    }
+
+    return { counts, scores, lastTs };
+}
+
+function getTopErroredPairs(tabMin, tabMax, multMin, multMax, maxPairs) {
+    const { counts, scores, lastTs } = getMultiplicationErrorMapForRange(tabMin, tabMax, multMin, multMax);
+    const items = [];
+
+    // Usa scores (ponderado por recência) quando disponível; mantém count bruto para desempate.
+    const primary = (scores && typeof scores.forEach === 'function') ? scores : counts;
+
+    primary.forEach((scoreVal, k) => {
+        const [a, b] = k.split('x').map(Number);
+        const c = counts.get(k) || 0;
+        items.push({
+            a, b,
+            score: Number(scoreVal) || 0,
+            c,
+            ts: (lastTs && lastTs.get(k)) ? (lastTs.get(k) || 0) : 0
+        });
+    });
+
+    // Ordena por:
+    // 1) score (recência + frequência)
+    // 2) count bruto
+    // 3) mais recente
+    // 4) (desempate) números maiores
+    items.sort((p, q) =>
+        (q.score - p.score) ||
+        (q.c - p.c) ||
+        (q.ts - p.ts) ||
+        ((q.a + q.b) - (p.a + p.b))
+    );
+
+    const n = Math.max(0, Number(maxPairs) || 0);
+    return items.slice(0, n).map(it => [it.a, it.b]);
+}
+function buildTrailPairs(tabMin, tabMax, multMin, multMax, targetLen) {
     const pairs = [];
     for (let t = tabMin; t <= tabMax; t++) {
         for (let m = multMin; m <= multMax; m++) {
             pairs.push([t, m]);
         }
     }
+
+    const baseLen = pairs.length;
+    const target = Number.isInteger(targetLen) ? targetLen : getTrailTargetSize(tabMin, tabMax, multMin, multMax);
+
+    // Se o alvo for maior que o banco único, completamos com revisões (repetições) mantendo tudo dentro da faixa.
+    // Importante: SEM remover nenhuma combinação — todas aparecem pelo menos 1 vez.
+    if (target > baseLen) {
+        const extras = target - baseLen;
+
+        // Prioriza revisões pelos pares que o aluno mais erra (dentro da faixa).
+        // Observação: Fácil e Médio têm 50 combinações únicas e precisam de +6 revisões para chegar em 56.
+        let reviewList = [];
+        try {
+            reviewList = getTopErroredPairs(tabMin, tabMax, multMin, multMax, 20);
+        } catch (_) {
+            reviewList = [];
+        }
+
+        // Fallback: se não houver erros salvos para essa faixa, revisa os "mais difíceis" (números maiores).
+        if (!Array.isArray(reviewList) || reviewList.length === 0) {
+            reviewList = pairs.slice().sort((a, b) => (b[0] + b[1]) - (a[0] + a[1]));
+        }
+
+        for (let i = 0; i < extras; i++) {
+            const c = reviewList[i % reviewList.length];
+            pairs.push([c[0], c[1]]);
+        }
+    } else if (target < baseLen) {
+        // Caso raro: se alguém diminuir o alvo, corta mantendo apenas o começo (a trilha ainda será embaralhada depois)
+        pairs.length = target;
+    }
+
     return pairs;
 }
 
 function ensureTrailPairs(tabMin = gameState.multiplication.trailMin, tabMax = gameState.multiplication.trailMax, multMin = gameState.multiplication.multMin, multMax = gameState.multiplication.multMax) {
     // sanitiza
-    if (!Number.isInteger(tabMin)) tabMin = 0;
+    if (!Number.isInteger(tabMin)) tabMin = 1;
     if (!Number.isInteger(tabMax)) tabMax = 20;
     if (tabMin > tabMax) [tabMin, tabMax] = [tabMax, tabMin];
 
-    if (!Number.isInteger(multMin)) multMin = 0;
+    if (!Number.isInteger(multMin)) multMin = 1;
     if (!Number.isInteger(multMax)) multMax = 20;
     if (multMin > multMax) [multMin, multMax] = [multMax, multMin];
 
     const tabCount = (tabMax - tabMin + 1);
     const multCount = (multMax - multMin + 1);
-    const expectedLen = Math.max(0, tabCount) * Math.max(0, multCount);
+    const expectedLen = getTrailTargetSize(tabMin, tabMax, multMin, multMax);
 
     const key = `${tabMin}-${tabMax}|${multMin}-${multMax}`;
     const sameKey = gameState.multiplication.trailRangeKey === key;
 
-    if (!Array.isArray(gameState.multiplication.trailPairs) ||
-        gameState.multiplication.trailPairs.length !== expectedLen ||
-        !sameKey
-    ) {
+    const pairsOk = Array.isArray(gameState.multiplication.trailPairs) &&
+        gameState.multiplication.trailPairs.length === expectedLen &&
+        gameState.multiplication.trailPairs.every(p =>
+            Array.isArray(p) &&
+            p.length === 2 &&
+            Number.isFinite(p[0]) && Number.isFinite(p[1]) &&
+            p[0] >= tabMin && p[0] <= tabMax &&
+            p[1] >= multMin && p[1] <= multMax
+        );
+
+    // IMPORTANTE: fácil (1–5×1–10) e médio (6–10×1–10) têm o mesmo tamanho de banco (50).
+    // Então não basta checar só o tamanho: precisamos garantir que os pares estão dentro da faixa correta.
+    if (!pairsOk || !sameKey) {
         gameState.multiplication.trailPairs = shuffleArray(buildTrailPairs(tabMin, tabMax, multMin, multMax));
         // Restaura o ponto do ciclo dessa faixa (se existir)
         const savedIdx = getSavedTrailIndexForKey(key, expectedLen);
@@ -1678,13 +4189,13 @@ function ensureTrailPairs(tabMin = gameState.multiplication.trailMin, tabMax = g
 function getNextTrailPair() {
     ensureTrailPairs();
     const pairs = Array.isArray(gameState.multiplication.trailPairs) ? gameState.multiplication.trailPairs : [];
-    if (pairs.length === 0) return [0, 0];
+    if (pairs.length === 0) return [1, 1];
 
     if (gameState.multiplication.trailPairIndex >= pairs.length) {
         // completou o ciclo → nova ordem aleatória
-        const tabMin = Number.isInteger(gameState.multiplication.trailMin) ? gameState.multiplication.trailMin : 0;
+        const tabMin = Number.isInteger(gameState.multiplication.trailMin) ? gameState.multiplication.trailMin : 1;
         const tabMax = Number.isInteger(gameState.multiplication.trailMax) ? gameState.multiplication.trailMax : 20;
-        const multMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 0;
+        const multMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 1;
         const multMax = Number.isInteger(gameState.multiplication.multMax) ? gameState.multiplication.multMax : 20;
         gameState.multiplication.trailPairs = shuffleArray(buildTrailPairs(tabMin, tabMax, multMin, multMax));
         gameState.multiplication.trailPairIndex = 0;
@@ -1696,23 +4207,39 @@ function getNextTrailPair() {
     return pair;
 }
 
-function getTrailPairsBankSize(tabMin, tabMax, multMin, multMax) {
+function getTrailTargetSize(tabMin, tabMax, multMin, multMax) {
+    // Normaliza e calcula o tamanho-base (todas as combinações únicas)
     const tCount = Math.max(0, (tabMax - tabMin + 1));
     const mCount = Math.max(0, (multMax - multMin + 1));
-    return tCount * mCount;
+    const base = tCount * mCount;
+
+    // Regras do PET (Multiplicação - Trilha automática)
+    // Fácil: 1–5 × 1–10 = 50 combinações → 56 questões (inclui 6 revisões)
+    // Médio: 6–10 × 1–10 = 50 combinações → 56 questões (inclui 6 revisões)
+    // Avançado: 11–20 × 1–20 = 200 combinações → 200 questões
+    const key = `${tabMin}-${tabMax}|${multMin}-${multMax}`;
+    if (key === '1-5|1-10') return 56;
+    if (key === '6-10|1-10') return 56;
+    if (key === '11-20|1-20') return 200;
+
+    return base;
+}
+
+function getTrailPairsBankSize(tabMin, tabMax, multMin, multMax) {
+    return getTrailTargetSize(tabMin, tabMax, multMin, multMax);
 }
 
 // Modo direto: multiplicadores embaralhados para a tabuada escolhida
 function prepareRoundMultipliersForCurrentLevel() {
     const multMax = Number.isInteger(gameState.multiplication.multMax) ? gameState.multiplication.multMax : 20;
-    const multMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 0;
+    const multMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 1;
     gameState.multiplication.roundMultipliers = shuffleArray(rangeInclusive(multMin, multMax));
     gameState.multiplication.roundPos = 0;
 }
 
 function getNextRoundMultiplier() {
     const multMax = Number.isInteger(gameState.multiplication.multMax) ? gameState.multiplication.multMax : 20;
-    const multMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 0;
+    const multMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 1;
     const expectedLen = (multMax - multMin + 1);
 
     if (!Array.isArray(gameState.multiplication.roundMultipliers) || gameState.multiplication.roundMultipliers.length !== expectedLen) {
@@ -1741,6 +4268,29 @@ function ensureCycleProgressBadge() {
 
 function hideCycleProgressBadge() {
     const el = ensureCycleProgressBadge();
+
+    // --- Rodapé legal (aparece apenas ao final da rolagem) ---
+    try {
+        const __PET_LEGAL_HTML = `
+          <div class="pet-legal-footer" role="contentinfo">
+            <small>
+              © 2026 Rafael Oliveira e Ronaldo Soares. Todos os direitos reservados.<br/>
+              PET — Programa de Estudo da Tabuada é um projeto educacional institucional vinculado à Escola Municipal Vereador José Ferreira de Aguiar (Contagem/MG).<br/>
+              Uso autorizado exclusivamente para fins educacionais. É vedada a reprodução, redistribuição, modificação ou exploração comercial, total ou parcial, sem autorização prévia e expressa de ambos os autores.<br/>
+              É vedada a supressão de créditos/avisos de autoria e qualquer apresentação do projeto como de terceiros.
+            </small>
+          </div>
+        `;
+        document.querySelectorAll('.screen').forEach((screenEl) => {
+            if (!screenEl) return;
+            if (screenEl.querySelector('.pet-legal-footer')) return;
+            const holder = document.createElement('div');
+            holder.innerHTML = __PET_LEGAL_HTML.trim();
+            const footerEl = holder.firstElementChild;
+            if (footerEl) screenEl.appendChild(footerEl);
+        });
+    } catch (e) {}
+
     el.style.display = 'none';
 }
 
@@ -1760,7 +4310,7 @@ function updateCycleProgressUI() {
     if (gameState.multiplication.mode === 'trail') {
         const tMin = Number.isInteger(gameState.multiplication.trailMin) ? gameState.multiplication.trailMin : 0;
         const tMax = Number.isInteger(gameState.multiplication.trailMax) ? gameState.multiplication.trailMax : 20;
-        const mMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 0;
+        const mMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 1;
         const mMax = Number.isInteger(gameState.multiplication.multMax) ? gameState.multiplication.multMax : 20;
         const bankSize = getTrailPairsBankSize(tMin, tMax, mMin, mMax);
 
@@ -1771,7 +4321,7 @@ function updateCycleProgressUI() {
     }
 
     // Direto: mostra progresso da tabuada (ex.: 6/11)
-    const mMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 0;
+    const mMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 1;
     const mMax = Number.isInteger(gameState.multiplication.multMax) ? gameState.multiplication.multMax : 20;
     const total = Math.max(0, (mMax - mMin + 1));
     const current = Math.min(Math.max(Number(gameState.multiplication.roundPos || 0), 0), total);
@@ -2051,6 +4601,10 @@ function startGame(operation, level) {
         return;
     }
 
+    // Prioridade 1: ao iniciar um novo jogo, limpa qualquer sessão anterior
+    try { ensurePetStorageVersion(); } catch (_) {}
+    try { clearSavedPetSession(); } catch (_) {}
+
     // 1. Resetar o estado do jogo
     gameState.currentOperation = operation;
     gameState.currentLevel = level;
@@ -2060,6 +4614,15 @@ function startGame(operation, level) {
     gameState.questionNumber = 0;
     gameState.acertos = 0;
     gameState.erros = 0;
+    // Prioridade 2/3: zera métricas da sessão
+    gameState.xpGainedRound = 0;
+    gameState.totalAnswerTimeMs = 0;
+    gameState.questionsAnswered = 0;
+    gameState.questionStartedAt = Date.now();
+    gameState.__summaryShown = false;
+    gameState.__petProgressUpdate = null;
+    gameState.__petStreakRewardApplied = false;
+
     
     // Quantidade de questões (Modo Rápido) por operação
     if (gameState.isRapidMode) {
@@ -2182,6 +4745,10 @@ if (operation === 'multiplication' && gameState.multiplication && (gameState.mul
 
     // Mostra/atualiza o progresso do ciclo da Tabuada (se aplicável)
     updateCycleProgressUI();
+
+    // Salva imediatamente a sessão atual (para continuar depois)
+    try { savePetSessionSnapshotNow(); } catch (_) {}
+    try { refreshContinueSessionButtonVisibility(); } catch (_) {}
 }
 
 
@@ -2233,6 +4800,10 @@ gameState.questionNumber++;
 
     // 4. Leitura de Voz
     announceCurrentQuestion();
+
+    // Prioridade 1: persiste andamento
+    try { savePetSessionSoon(); } catch (_) {}
+    try { refreshContinueSessionButtonVisibility(); } catch (_) {}
 }
 
 
@@ -2267,6 +4838,18 @@ function handleAnswer(selectedAnswer, selectedButton) {
 
     const q = gameState.currentQuestion;
     if (!q) return;
+
+    // Prioridade 2: tempo por questão (conta apenas na 1ª tentativa)
+    try {
+        if (Number(gameState.attemptsThisQuestion || 0) === 0) {
+            const t0 = Number(gameState.questionStartedAt || 0);
+            if (t0 > 0) {
+                const spent = Math.max(0, Date.now() - t0);
+                gameState.totalAnswerTimeMs = Number(gameState.totalAnswerTimeMs || 0) + spent;
+                gameState.questionsAnswered = Number(gameState.questionsAnswered || 0) + 1;
+            }
+        }
+    } catch (_) {}
 
     // Se havia uma dica visível, ela deve sumir quando o aluno responder.
     hideMentorBubble();
@@ -2329,6 +4912,9 @@ function handleAnswer(selectedAnswer, selectedButton) {
         atualizarXP(xpGain);
         playerScoreElement.textContent = `${gameState.score} Pontos`;
 
+        // Prioridade 1: persiste andamento após acerto
+        try { savePetSessionSoon(); } catch (_) {}
+
         // Se acertou, repõe o tempo total para a próxima questão
         if (gameState.isRapidMode && !isTraining) {
             gameState.timeStep = gameState.baseTimeStep;
@@ -2355,6 +4941,9 @@ function handleAnswer(selectedAnswer, selectedButton) {
             nextQuestion();
         }, 1100);
 
+        // Prioridade 1: garante persistência também antes de avançar
+        try { savePetSessionSoon(); } catch (_) {}
+
         return;
     }
 
@@ -2371,6 +4960,7 @@ function handleAnswer(selectedAnswer, selectedButton) {
         // Desabilita só a alternativa errada (evita repetir a mesma)
         if (selectedButton) selectedButton.disabled = true;
         // (feedback substituído por showPedagogicalFeedback)
+        try { savePetSessionSoon(); } catch (_) {}
     return;
     }
 
@@ -2382,6 +4972,7 @@ function handleAnswer(selectedAnswer, selectedButton) {
         if (gameState.isRapidMode) {
             // nada a fazer; o timer já está rodando
         }
+        try { savePetSessionSoon(); } catch (_) {}
         return;
     }
 
@@ -2397,6 +4988,7 @@ function handleAnswer(selectedAnswer, selectedButton) {
 
     // (feedback substituído por showPedagogicalFeedback)
     // Próxima questão (sem repor tempo)
+    try { savePetSessionSoon(); } catch (_) {}
     setTimeout(() => {
         if (gameState.isRapidMode) startTimer();
         nextQuestion();
@@ -2407,6 +4999,10 @@ function handleAnswer(selectedAnswer, selectedButton) {
 function endGame() {
     gameState.isGameActive = false;
     if (gameState.isRapidMode) stopTimer();
+
+    // Prioridade 1: ao finalizar, remove sessão em andamento
+    try { clearSavedPetSession(); } catch (_) {}
+    try { refreshContinueSessionButtonVisibility(); } catch (_) {}
 
     // Garante que dica/mentor não fique sobre a tela de resultados
     hideMentorBubble();
@@ -2441,7 +5037,7 @@ function endGame() {
             if (gameState.multiplication.mode === 'trail') {
                 const tMin = Number.isInteger(gameState.multiplication.trailMin) ? gameState.multiplication.trailMin : 0;
                 const tMax = Number.isInteger(gameState.multiplication.trailMax) ? gameState.multiplication.trailMax : 20;
-                const mMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 0;
+                const mMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 1;
                 const mMax = Number.isInteger(gameState.multiplication.multMax) ? gameState.multiplication.multMax : 20;
                 const bankSize = getTrailPairsBankSize(tMin, tMax, mMin, mMax);
                 const restante = Math.max(0, bankSize - (gameState.multiplication.trailPairIndex || 0));
@@ -2450,7 +5046,7 @@ function endGame() {
                     `A trilha não repete contas até completar (total ${bankSize}). ` +
                     `Faltam ${restante} para fechar o ciclo atual.`;
             } else {
-                const mMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 0;
+                const mMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 1;
                 const mMax = Number.isInteger(gameState.multiplication.multMax) ? gameState.multiplication.multMax : 20;
                 sugg.textContent =
                     `${modeLabel}: Tabuada do ${gameState.multiplication.tabuada} (×${mMin}–${mMax}). ` +
@@ -2497,14 +5093,66 @@ function endGame() {
         } else if (gameState.multiplication && gameState.multiplication.mode === 'trail') {
             const tMin = Number.isInteger(gameState.multiplication.trailMin) ? gameState.multiplication.trailMin : 0;
             const tMax = Number.isInteger(gameState.multiplication.trailMax) ? gameState.multiplication.trailMax : 20;
-            const mMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 0;
+            const mMin = Number.isInteger(gameState.multiplication.multMin) ? gameState.multiplication.multMin : 1;
             const mMax = Number.isInteger(gameState.multiplication.multMax) ? gameState.multiplication.multMax : 20;
             const bankSize2 = getTrailPairsBankSize(tMin, tMax, mMin, mMax);
             setSavedTrailIndexForKey(gameState.multiplication.trailRangeKey, Math.max(0, Number(gameState.multiplication.trailPairIndex) || 0));
         }
     } catch (_) {}
 
+    
+    // Prioridade 3: atualiza sequência + conquistas ao concluir sessão
+    try {
+        const attemptsTotal3 = Math.max(1, Number(gameState.acertos || 0) + Number(gameState.erros || 0));
+        const accuracy3 = (Number(gameState.acertos || 0) / attemptsTotal3) * 100;
+        const answered3 = (Number.isFinite(gameState.totalQuestions) && gameState.totalQuestions !== Infinity)
+            ? Number(gameState.totalQuestions)
+            : Number(gameState.questionNumber || 0);
+
+        const upd = updatePetProgressOnSessionEnd({
+            answered: answered3,
+            accuracy: Math.round(accuracy3 * 10) / 10,
+            mode: gameState.isRapidMode ? 'rapid' : 'study'
+        });
+
+        gameState.__petProgressUpdate = upd;
+
+        // Recompensa de sequência (XP bônus)
+        try {
+            const bonus = applyPetStreakRewardIfAny(upd);
+            try { gameState.__petBonusXpApplied = bonus; } catch (_) {}
+            if (bonus > 0) {
+                try {
+                    const lbl = (upd.streakReward && upd.streakReward.label) ? upd.streakReward.label : 'sequência';
+                    PET_LEVEL1_UI.showToast(`🎁 Bônus de sequência: +${bonus} XP (${lbl})`);
+                } catch (_) {}
+            }
+        } catch (_) {}
+
+        if (upd && Array.isArray(upd.newlyUnlocked) && upd.newlyUnlocked.length) {
+            const cat = getPetBadgeCatalog();
+            const names = upd.newlyUnlocked
+                .map(id => (cat.find(b => b.id === id)?.title) || id)
+                .slice(0, 3);
+
+            try {
+                if (upd.newlyUnlocked.length === 1) {
+                    PET_LEVEL1_UI.showToast(`🎖 Nova conquista: ${names[0]}`);
+                } else {
+                    PET_LEVEL1_UI.showToast(`🎖 ${upd.newlyUnlocked.length} conquistas desbloqueadas!`);
+                }
+            } catch (_) {}
+        } else if (upd && upd.streakChanged) {
+            try { PET_LEVEL1_UI.showToast(`🔥 Sequência: ${Number(upd.progress?.streak || 0)} dia(s)`); } catch (_) {}
+        }
+    } catch (_) {}
+
+    try { recordPetCompletedSession({ sessionType: 'sessao', upd: gameState.__petProgressUpdate, bonusApplied: Number(gameState.__petBonusXpApplied || 0) }); } catch (_) {}
+
     exibirTela('result-screen');
+    // Prioridade 3+: mostra recompensas/conquistas desta sessão na tela de resultado
+    try { setTimeout(() => { renderPetSessionRewardsOnResultScreen(); }, 80); } catch (_) {}
+
 }
 
 
@@ -2554,6 +5202,8 @@ function startTimer() {
         if (gameState.timeLeft <= fiveSecThreshold && gameState.timeLeft > 0) {
             if (!gameState.lowTimeAlerted) {
                 playAlertSound();
+                try { announceSR('Atenção: faltam cinco segundos.'); } catch (_) {}
+                try { maybeVibrate([200,100,200]); } catch (_) {}
                 gameState.lowTimeAlerted = true;
             }
         } else {
@@ -2575,6 +5225,19 @@ function stopTimer() {
 
 function attachEventListeners() {
 
+    // Tooltips nativos (title) — aparecem ao passar o mouse (sem mexer no visual)
+    const setDefaultTitle = (el, txt) => {
+        try { if (el && !el.getAttribute('title')) el.setAttribute('title', txt); } catch(_) {}
+    };
+    setDefaultTitle(document.getElementById('toggle-night-mode'), 'Alterna entre modo claro e modo escuro.');
+    setDefaultTitle(document.getElementById('mode-rapido'), 'Modo Rápido: questões com tempo (XP por velocidade).');
+    setDefaultTitle(document.getElementById('mode-estudo'), 'Modo Estudo: sem tempo (você pode usar “Mostrar Resposta” para aprender).');
+    setDefaultTitle(document.getElementById('layout-auto'), 'Layout automático: ajusta conforme o dispositivo.');
+    setDefaultTitle(document.getElementById('layout-mobile'), 'Força layout de celular (botões maiores).');
+    setDefaultTitle(document.getElementById('layout-desktop'), 'Força layout de PC (mais espaço na tela).');
+    setDefaultTitle(document.getElementById('toggle-voice-read'), 'Lê a questão e alternativas em voz (Text-to-Speech).');
+    setDefaultTitle(document.getElementById('toggle-libras'), 'Modo Libras (em evolução): acessibilidade e tempo dobrado no modo rápido.');
+
     // Acessibilidade extra (Zoom e Contraste)
     const btnZoomIn = document.getElementById('zoom-in');
     const btnZoomOut = document.getElementById('zoom-out');
@@ -2591,6 +5254,48 @@ function attachEventListeners() {
     if (btnContrast) {
         btnContrast.addEventListener('click', () => toggleHighContrast());
     }
+
+    // Toggles extras: Dislexia / Calmo / Tempo+ / Vibração
+    const btnDyslexia = document.getElementById('toggle-dyslexia');
+    const btnCalm = document.getElementById('toggle-calm');
+    const btnExtraTime = document.getElementById('toggle-extra-time');
+    const btnVibrate = document.getElementById('toggle-vibrate');
+
+    if (btnDyslexia) {
+        btnDyslexia.addEventListener('click', () => {
+            const on = toggleDyslexia();
+            btnDyslexia.classList.toggle('active', on);
+            showFeedbackMessage(`Modo Dislexia ${on ? 'ativado' : 'desativado'}!`, 'info', 2000);
+        });
+    }
+    if (btnCalm) {
+        btnCalm.addEventListener('click', () => {
+            const on = toggleCalm();
+            btnCalm.classList.toggle('active', on);
+            showFeedbackMessage(`Modo Calmo ${on ? 'ativado' : 'desativado'}!`, 'info', 2000);
+        });
+    }
+    if (btnExtraTime) {
+        btnExtraTime.addEventListener('click', () => {
+            const on = toggleExtraTime();
+            btnExtraTime.classList.toggle('active', on);
+            showFeedbackMessage(`Tempo+ ${on ? 'ativado' : 'desativado'}!`, 'info', 2000);
+        });
+    }
+    if (btnVibrate) {
+        // Se o dispositivo não suporta vibração, mantemos o botão mas avisamos
+        const supported = (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function');
+        btnVibrate.addEventListener('click', () => {
+            if (!supported) {
+                showFeedbackMessage('Vibração não disponível neste dispositivo.', 'info', 2500);
+                return;
+            }
+            const on = toggleVibrate();
+            btnVibrate.classList.toggle('active', on);
+            showFeedbackMessage(`Vibração ${on ? 'ativada' : 'desativada'}!`, 'info', 2000);
+        });
+    }
+
 
 
     
@@ -2640,6 +5345,9 @@ speak(`Operação ${gameState.currentOperation} selecionada. Agora escolha o ní
             showFeedbackMessage("Rodada cancelada.", 'warning', 2000);
             gameState.isGameActive = false;
         }
+        // Prioridade 1: cancelar = encerrar sessão salva
+        try { clearSavedPetSession(); } catch (_) {}
+        try { refreshContinueSessionButtonVisibility(); } catch (_) {}
         exibirTela('home-screen');
     });
 
@@ -2680,12 +5388,22 @@ speak(`Operação ${gameState.currentOperation} selecionada. Agora escolha o ní
 }
     });
 
+
+// Compatibilidade touch para botões de modo/tema/acessibilidade
+ensureTouchClick(toggleNightMode);
+ensureTouchClick(modeRapidoBtn);
+ensureTouchClick(modeEstudoBtn);
+ensureTouchClick(document.getElementById('toggle-dyslexia'));
+ensureTouchClick(document.getElementById('toggle-calm'));
+ensureTouchClick(document.getElementById('toggle-extra-time'));
+ensureTouchClick(document.getElementById('toggle-vibrate'));
+
 // 5. Toggle Modo Rápido/Estudo
     modeRapidoBtn.addEventListener('click', () => {
         gameState.isRapidMode = true;
         modeRapidoBtn.classList.add('active');
         modeEstudoBtn.classList.remove('active');
-        showFeedbackMessage("Modo Rápido (20 Questões com Tempo) selecionado!", 'incentive', 2500);
+        showFeedbackMessage("Modo Rápido (com tempo) selecionado!", 'incentive', 2500);
     });
 
     modeEstudoBtn.addEventListener('click', () => {
@@ -3105,15 +5823,320 @@ function getMentorTipsForQuestion(q) {
 }
 
 
+
+/* =========================================================================
+   NÍVEL 1 (extra) — UI de sistema (Toast/Modal), Atualização SW e Sobre/Versão
+   ========================================================================= */
+const PET_LEVEL1_UI = (() => {
+    const toastRoot = () => document.getElementById('toast-root');
+    const modalRoot = () => document.getElementById('modal-root');
+    const banner = () => document.getElementById('sw-update-banner');
+
+    function escapeHtml(str) {
+        return String(str).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+    }
+
+    function showToast(message, opts = {}) {
+        const root = toastRoot();
+        if (!root) return null;
+
+        const type = opts.type || 'info';
+        const actions = Array.isArray(opts.actions) ? opts.actions : [];
+        const id = 'toast_' + Math.random().toString(16).slice(2);
+
+        const el = document.createElement('div');
+        el.className = `toast ${type}`;
+        el.id = id;
+
+        const body = document.createElement('div');
+        body.className = 'toast-body';
+        body.innerHTML = escapeHtml(message);
+
+        const act = document.createElement('div');
+        act.className = 'toast-actions';
+
+        actions.forEach((a) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'toast-btn' + (a.primary ? ' primary' : '');
+            b.textContent = a.label || 'OK';
+            b.addEventListener('click', () => {
+                try { a.onClick && a.onClick(); } catch (_) {}
+                if (a.close !== false) removeToast(el);
+            });
+            act.appendChild(b);
+        });
+
+        // Botão fechar padrão (se não houver actions)
+        if (actions.length === 0) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'toast-btn';
+            b.textContent = 'Fechar';
+            b.addEventListener('click', () => removeToast(el));
+            act.appendChild(b);
+        }
+
+        el.appendChild(body);
+        el.appendChild(act);
+
+        root.appendChild(el);
+
+        const timeout = Number(opts.timeout || 0);
+        if (timeout > 0) {
+            setTimeout(() => removeToast(el), timeout);
+        }
+        return el;
+    }
+
+    function removeToast(el) {
+        try {
+            if (!el) return;
+            el.remove();
+        } catch (_) {}
+    }
+
+    function openModal(cfg = {}) {
+        const root = modalRoot();
+        if (!root) return;
+
+        const title = cfg.title || 'Atenção';
+        const html = cfg.html || `<p>${escapeHtml(cfg.message || '')}</p>`;
+        const primaryText = cfg.primaryText || 'OK';
+        const secondaryText = cfg.secondaryText || '';
+
+        root.classList.remove('hidden');
+        root.setAttribute('aria-hidden', 'false');
+
+        root.innerHTML = `
+          <div class="modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+            <h2>${escapeHtml(title)}</h2>
+            <div class="modal-content">${html}</div>
+            <div class="actions">
+              ${secondaryText ? `<button type="button" class="modal-btn" id="modal-secondary">${escapeHtml(secondaryText)}</button>` : ``}
+              <button type="button" class="modal-btn primary" id="modal-primary">${escapeHtml(primaryText)}</button>
+            </div>
+          </div>
+        `;
+
+        const close = () => {
+            root.classList.add('hidden');
+            root.setAttribute('aria-hidden', 'true');
+            root.innerHTML = '';
+        };
+
+        // Click fora fecha
+        root.addEventListener('click', (e) => {
+            if (e.target === root) close();
+        }, { once: true });
+
+        const p = root.querySelector('#modal-primary');
+        const s = root.querySelector('#modal-secondary');
+
+        if (p) p.addEventListener('click', () => {
+            try { cfg.onPrimary && cfg.onPrimary(); } catch (_) {}
+            close();
+        });
+
+        if (s) s.addEventListener('click', () => {
+            try { cfg.onSecondary && cfg.onSecondary(); } catch (_) {}
+            close();
+        });
+
+        return { close };
+    }
+
+    // -------- Service Worker: prompt de atualização (toast + banner)
+    let pendingRegistration = null;
+    let hasReloaded = false;
+
+    function showUpdateUI(registration) {
+        pendingRegistration = registration;
+        const b = banner();
+        if (b) {
+            b.classList.remove('hidden');
+            b.setAttribute('aria-hidden', 'false');
+
+            const btnUpdate = document.getElementById('sw-update-btn');
+            const btnDismiss = document.getElementById('sw-update-dismiss');
+
+            if (btnUpdate) btnUpdate.onclick = () => applyUpdate();
+            if (btnDismiss) btnDismiss.onclick = () => hideBanner();
+        }
+
+        showToast('Atualização disponível. Clique em “Atualizar” para aplicar.', {
+            type: 'info',
+            actions: [
+                { label: 'Atualizar', primary: true, onClick: () => applyUpdate() },
+                { label: 'Agora não', onClick: () => hideBanner() }
+            ]
+        });
+    }
+
+    function hideBanner() {
+        const b = banner();
+        if (b) {
+            b.classList.add('hidden');
+            b.setAttribute('aria-hidden', 'true');
+        }
+    }
+
+    function applyUpdate() {
+        try {
+            hideBanner();
+            const reg = pendingRegistration;
+            if (reg && reg.waiting) {
+                reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                showToast('Atualizando…', { type: 'success', timeout: 2500, actions: [] });
+            } else {
+                // fallback
+                window.location.reload();
+            }
+        } catch (e) {
+            window.location.reload();
+        }
+    }
+
+    function bindSWUpdateFlow() {
+        if (!('serviceWorker' in navigator)) return;
+
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (hasReloaded) return;
+            hasReloaded = true;
+            window.location.reload();
+        });
+
+        navigator.serviceWorker.ready.then((registration) => {
+            // Caso já exista waiting
+            if (registration.waiting) {
+                showUpdateUI(registration);
+            }
+
+            registration.addEventListener('updatefound', () => {
+                const newWorker = registration.installing;
+                if (!newWorker) return;
+
+                newWorker.addEventListener('statechange', () => {
+                    if (newWorker.state === 'installed') {
+                        // Só mostra se já havia uma versão controlando (não é 1ª instalação)
+                        if (navigator.serviceWorker.controller) {
+                            showUpdateUI(registration);
+                        }
+                    }
+                });
+            });
+        }).catch(() => {});
+    }
+
+    // -------- Sobre & Versão (mini) na Home
+    function ensureAboutMini() {
+        const home = document.getElementById('home-screen');
+        if (!home) return;
+
+        if (document.getElementById('btn-about-version')) return;
+
+        const anchor = document.getElementById('btn-show-ranking');
+        if (!anchor) return;
+
+        const wrap = document.createElement('div');
+        wrap.className = 'about-mini';
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.id = 'btn-about-version';
+        btn.className = 'btn-secondary';
+        btn.textContent = 'ℹ️ Sobre & Versão';
+
+        const version = document.body.getAttribute('data-version') || '1.0.0';
+        const p = document.createElement('div');
+        p.className = 'app-version-label';
+        p.textContent = `Versão v${version}`;
+
+        wrap.appendChild(btn);
+        wrap.appendChild(p);
+
+        // Insere logo depois do botão de ranking
+        anchor.insertAdjacentElement('afterend', wrap);
+
+        btn.addEventListener('click', () => {
+            const aboutId = 'about-section';
+            openModal({
+                title: 'Sobre & Versão',
+                html: `
+                  <p><strong>PET — Programa de Estudo da Tabuada</strong></p>
+                  <p>Versão: <strong>v${escapeHtml(version)}</strong></p>
+                  <p style="margin-top:10px;">
+                    Projeto educacional institucional vinculado à Escola Municipal Vereador José Ferreira de Aguiar (Contagem/MG).
+                  </p>
+                  <p style="margin-top:10px; opacity:.95;">
+                    Autoria: <strong>Rafael Oliveira</strong> e <strong>Ronaldo Soares</strong>.
+                  </p>
+                `,
+                secondaryText: 'Ler mais',
+                primaryText: 'Fechar',
+                onSecondary: () => {
+                    const el = document.getElementById(aboutId);
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+    }
+
+    function applyAriaToScreens() {
+        try {
+            const screens = document.querySelectorAll('.screen');
+            screens.forEach((s) => {
+                const isActive = s.classList.contains('active');
+                s.setAttribute('aria-hidden', isActive ? 'false' : 'true');
+            });
+        } catch (_) {}
+    }
+
+    function watchScreenState() {
+        try {
+            const app = document.getElementById('app');
+            if (!app || !('MutationObserver' in window)) return;
+
+            const obs = new MutationObserver(() => {
+                try { applyAriaToScreens(); } catch (_) {}
+            });
+            obs.observe(app, { subtree: true, attributes: true, attributeFilter: ['class'] });
+        } catch (_) {}
+    }
+
+
+    return {
+        showToast,
+        openModal,
+        bindSWUpdateFlow,
+        ensureAboutMini,
+        applyAriaToScreens,
+        watchScreenState
+    };
+})();
+
+
 // --- INICIALIZAÇÃO DO DOCUMENTO ---
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Segurança: evita comportamento de submit acidental em botões
+    try {
+        document.querySelectorAll('button').forEach((b) => { if (!b.getAttribute('type')) b.setAttribute('type','button'); });
+    } catch (_) {}
+
     // 1. Carrega o estado persistente
     carregarXP();
     carregarErros();
     carregarRanking();
     loadTeacherPrefs();
-    initPWA(); 
+    initPWA();
+
+    try { PET_LEVEL1_UI.ensureAboutMini(); } catch (_) {}
+    // Prioridade 3: chip de sequência + botão de conquistas na Home
+    try { ensurePetProgressMini(); } catch (_) {}
+    try { PET_LEVEL1_UI.applyAriaToScreens(); } catch (_) {}
+    try { PET_LEVEL1_UI.watchScreenState(); } catch (_) {}
+
     
     
     initMentorUI();
@@ -3126,37 +6149,25 @@ document.addEventListener('DOMContentLoaded', () => {
     loadStudentProfile();
     ensureProfileUI();
 loadAccessibilityPrefs();
+syncAccessibilityButtons();
 attachEventListeners();
     initTeacherPanel();
+    initStudentPanel();
+
+    // Vídeo curto “como usar” (sem áudio) – abre em modal sem alterar layout.
+    try {
+        initTutorialVideo();
+    } catch (_) {}
+
+    // Prioridade 1: salvar e retomar sessão (andamento do jogo)
+    try { initPetSessionPersistence(); } catch (_) {}
+
+    // Prioridade 2: onboarding do primeiro acesso (após janela do 'Continuar')
+    try { setTimeout(() => { maybeShowOnboardingWizard(); }, 1200); } catch (_) {}
 
     // Inicializa o badge de progresso (fica oculto até o jogo começar)
     ensureCycleProgressBadge();
     
-    
-    // --- Rodapé legal (aparece apenas ao final da rolagem) ---
-    try {
-        const __PET_LEGAL_HTML = `
-          <div class="pet-legal-footer" role="contentinfo">
-            <small>
-              © 2026 Rafael Oliveira e Ronaldo Soares. Todos os direitos reservados.<br/>
-              PET — Programa de Estudo da Tabuada é um projeto educacional institucional vinculado à Escola Municipal Vereador José Ferreira de Aguiar (Contagem/MG).<br/>
-              Uso autorizado exclusivamente para fins educacionais. É vedada a reprodução, redistribuição, modificação ou exploração comercial, total ou parcial, sem autorização prévia e expressa de ambos os autores.<br/>
-              É vedada a supressão de créditos/avisos de autoria e qualquer apresentação do projeto como de terceiros.
-            </small>
-          </div>
-        `;
-
-        document.querySelectorAll('.screen').forEach((screenEl) => {
-            if (!screenEl) return;
-            if (screenEl.querySelector('.pet-legal-footer')) return;
-            const holder = document.createElement('div');
-            holder.innerHTML = __PET_LEGAL_HTML.trim();
-            const footerEl = holder.firstElementChild;
-            if (footerEl) screenEl.appendChild(footerEl);
-        });
-    } catch (e) {}
-
-
     // 3. Atualiza o estado inicial do botão de Treinar Erros
     updateErrorTrainingButton();
 
@@ -3165,3 +6176,86 @@ attachEventListeners();
         toggleNightMode.querySelector('.icon').textContent = '☀️';
     }
 });
+
+
+/* =========================================================
+   Vídeo curto (sem áudio) dentro do app
+   - Abre em modal (reusa o modal-root existente)
+   - Pausa o vídeo ao fechar (botão, ESC, clique fora)
+   ========================================================= */
+function initTutorialVideo() {
+    const btn = document.getElementById('btn-open-tutorial-video');
+    if (!btn) return;
+
+    // Evita abrir 2x no mobile (pointerup + click)
+    let lastOpenAt = 0;
+
+    const open = () => {
+        const now = Date.now();
+        if (now - lastOpenAt < 500) return;
+        lastOpenAt = now;
+
+        const html = `
+          <div style="display:flex;flex-direction:column;gap:12px;align-items:center;">
+            <video id="tutorial-video" controls playsinline preload="metadata"
+                   style="width:100%;max-width:560px;border-radius:16px;box-shadow:0 12px 28px rgba(0,0,0,.22);">
+              <source src="./tutorial.mp4" type="video/mp4" />
+              Seu navegador não suporta vídeo.
+            </video>
+            <div style="font-size:14px;opacity:.9;text-align:center;line-height:1.35;max-width:560px;">
+              Dica: comece pela <strong>Adição</strong> no <strong>Modo Estudo</strong> e siga a trilha.
+            </div>
+          </div>
+        `;
+
+        const modalCtl = (window.PET_LEVEL1_UI && typeof PET_LEVEL1_UI.openModal === 'function')
+            ? PET_LEVEL1_UI.openModal({
+                title: '🎥 Vídeo: como usar o PET',
+                html,
+                primaryText: 'Fechar',
+                onPrimary: () => {
+                    try {
+                        const v = document.getElementById('tutorial-video');
+                        v && v.pause && v.pause();
+                    } catch (_) {}
+                }
+            })
+            : null;
+
+        const root = document.getElementById('modal-root');
+        const pauseVideo = () => {
+            try {
+                const v = document.getElementById('tutorial-video');
+                v && v.pause && v.pause();
+            } catch (_) {}
+        };
+
+        // Clique fora (backdrop) – pausa antes do close interno do modal
+        if (root) {
+            root.addEventListener('click', (e) => {
+                if (e.target === root) pauseVideo();
+            }, true);
+        }
+
+        // ESC fecha + pausa
+        const onKey = (e) => {
+            if (e.key === 'Escape') {
+                pauseVideo();
+                try { modalCtl && modalCtl.close && modalCtl.close(); } catch (_) {}
+            }
+        };
+        document.addEventListener('keydown', onKey, { once: true });
+    };
+
+    // Disponibiliza para outros painéis (Professor/Estudante)
+    try { window.PET_OPEN_TUTORIAL_VIDEO = open; } catch (_) {}
+
+    // Click + pointerup (mobile) – sem preventDefault para não quebrar toque
+    btn.addEventListener('click', open);
+    btn.addEventListener('pointerup', (e) => {
+        if (e && e.pointerType && e.pointerType !== 'mouse') {
+            // Em alguns Androids, click pode falhar em botões; pointerup garante.
+            try { open(); } catch (_) {}
+        }
+    });
+}

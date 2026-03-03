@@ -1,11 +1,12 @@
 /* Matemágica Duo - Service Worker (Offline) */
 // Incrementar sempre que houver mudanças para forçar atualização do cache
-const CACHE_NAME = 'matemagica-duo-v14-2-m3-tips2-toggle1-snd1-acc1-xpSpeed1-legalFooter1';
+const CACHE_NAME = 'pet-tabuada-v1-11-1-video';
 const ASSETS = [
   '.',
   './index.html',
   './style.css',
   './script.js',
+  './tutorial.mp4',
   './alert-sound.mp3',
   './manifest.webmanifest',
   './icon-192.png',
@@ -50,4 +51,14 @@ self.addEventListener('fetch', (event) => {
         });
     })
   );
+});
+
+
+// Permite atualizar imediatamente quando o app solicitar
+self.addEventListener('message', (event) => {
+  try {
+    if (event && event.data && event.data.type === 'SKIP_WAITING') {
+      self.skipWaiting();
+    }
+  } catch (_) {}
 });

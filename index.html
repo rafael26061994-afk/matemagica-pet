@@ -5,17 +5,34 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>PET — Programa de Estudo da Tabuada</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;900&amp;display=swap" rel="stylesheet"/>
 <link href="style.css" rel="stylesheet"/>
+<meta name="description" content="PET — Programa de Estudo da Tabuada: aprender matemática com jogos, tecnologia e inclusão."/>
+<meta name="theme-color" content="#007bff"/>
+<meta name="color-scheme" content="light dark"/>
+
+<link rel="manifest" href="manifest.webmanifest"/>
+<link rel="icon" href="icon-192.png"/>
+<link rel="apple-touch-icon" href="icon-192.png"/>
+
+<meta property="og:type" content="website"/>
+<meta property="og:title" content="PET — Programa de Estudo da Tabuada"/>
+<meta property="og:description" content="Aprender matemática com jogos, tecnologia e inclusão."/>
+<meta property="og:image" content="icon-512.png"/>
+
 </head>
-<body class="light-mode">
+<body class="light-mode" data-version="1.10.2">
+<a class="skip-link" href="#app">Pular para o conteúdo</a>
+<noscript><div class="noscript-warning">Este aplicativo precisa de JavaScript para funcionar.</div></noscript>
 <span class="libras-alert hidden" id="libras-alert"></span>
 <div id="confetti-container"></div>
 <div class="feedback-message hidden" id="feedback-message">
   <button type="button" id="feedback-close" class="feedback-close" aria-label="Fechar dica">×</button>
   <span id="feedback-text"></span>
 </div>
-<div class="container">
+<div class="container" id="app" role="main">
 <div class="screen active" id="home-screen">
 <header>
 <img alt="Logo do Projeto" id="main-logo" src="Sem titulo.png"/>
@@ -63,14 +80,17 @@
 </div>
 <p class="call-to-action-paragraph">Escolha uma operação para começar e treinar seu cérebro.</p>
 <div class="operation-grid">
-<button class="operation-card" data-operation="addition"><h3>Adição (+)</h3></button>
-<button class="operation-card" data-operation="subtraction"><h3>Subtração (-)</h3></button>
-<button class="operation-card" data-operation="multiplication"><h3>Multiplicação (x)</h3></button>
-<button class="operation-card" data-operation="division"><h3>Divisão (÷)</h3></button>
-<button class="operation-card" data-operation="potenciacao"><h3>Potenciação (aⁿ)</h3></button>
-<button class="operation-card" data-operation="radiciacao"><h3>Radiciação (√)</h3></button>
+<button class="operation-card" data-operation="addition" title="Adição (+): somar valores. Dica: faça decomposição e complete dezenas."><h3>Adição (+)</h3></button>
+<button class="operation-card" data-operation="subtraction" title="Subtração (-): tirar/diferença. Dica: use a reta numérica e compensação."><h3>Subtração (-)</h3></button>
+<button class="operation-card" data-operation="multiplication" title="Multiplicação (×): adição repetida. Dica: use padrões e propriedades."><h3>Multiplicação (x)</h3></button>
+<button class="operation-card" data-operation="division" title="Divisão (÷): repartir/medir. Dica: pense na multiplicação inversa."><h3>Divisão (÷)</h3></button>
+<button class="operation-card" data-operation="potenciacao" title="Potenciação (aⁿ): multiplicação repetida. Dica: cuidado com expoente."><h3>Potenciação (aⁿ)</h3></button>
+<button class="operation-card" data-operation="radiciacao" title="Radiciação (√): operação inversa da potenciação. Dica: use quadrados perfeitos."><h3>Radiciação (√)</h3></button>
 </div>
-<button class="main-btn" id="btn-show-ranking">🏆 Ver Recordes</button>
+<button class="main-btn" id="btn-show-ranking" title="Veja os melhores recordes salvos neste dispositivo.">🏆 Ver Recordes</button>
+<button class="main-btn" id="btn-open-teacher-panel" title="Acesse o painel do professor: relatório CSV, filtros e backup local.">👩‍🏫 Área do Professor</button>
+<button class="main-btn" id="btn-open-student-panel" title="Veja seu desempenho, receba dicas e exporte seu progresso para o professor.">👩‍🎓 Área do Estudante</button>
+<button class="main-btn" id="btn-open-tutorial-video" title="Assista a um vídeo curto explicando todas as funções do PET.">🎥 Vídeo: como usar</button>
 <div class="settings-bar">
 <button class="setting-btn" id="toggle-night-mode">
 <span class="icon">🌙</span> Modo Noite
@@ -107,6 +127,19 @@
 <span class="icon">⚫⚪</span> Contraste
 </button>
 
+
+<button id="toggle-dyslexia" class="setting-btn toggle-access" title="Modo Dislexia: melhora a leitura com mais espaçamento e conforto visual.">
+<span class="icon">🔤</span> Dislexia
+</button>
+<button id="toggle-calm" class="setting-btn toggle-access" title="Modo Calmo: reduz estímulos (sons/alertas) para mais foco e conforto.">
+<span class="icon">🧘</span> Calmo
+</button>
+<button id="toggle-extra-time" class="setting-btn toggle-access" title="Tempo+ (Modo Rápido): dobra o tempo sem precisar ativar voz ou libras.">
+<span class="icon">⏳</span> Tempo+
+</button>
+<button id="toggle-vibrate" class="setting-btn toggle-access" title="Vibração (celular): alerta tátil nos 5 segundos finais.">
+<span class="icon">📳</span> Vibração
+</button>
 </div>
 <div id="creators-section">
 <h3>Criado por:</h3>
@@ -238,6 +271,23 @@
 <button class="btn-action btn-secondary" disabled="" id="btn-clear-errors">Limpar Erros Salvos</button>
 </div>
 </div>
+<div id="toast-root" aria-live="polite" aria-atomic="true"></div>
+<div id="modal-root" class="hidden" aria-hidden="true"></div>
+
+<div id="sw-update-banner" class="sw-update-banner hidden" aria-hidden="true">
+  <div class="sw-update-inner" role="status" aria-live="polite">
+    <div class="sw-update-text">
+      <strong>Atualização disponível</strong>
+      <span class="sw-update-sub">Para aplicar melhorias e correções, atualize o app.</span>
+    </div>
+    <div class="sw-update-actions">
+      <button type="button" id="sw-update-btn" class="sw-update-btn primary">Atualizar</button>
+      <button type="button" id="sw-update-dismiss" class="sw-update-btn">Agora não</button>
+    </div>
+  </div>
+</div>
+
+
 <audio id="alert-sound" preload="auto" src="alert-sound.mp3"></audio>
 <div class="enabled" vw="">
 <div class="active" vw-access-button=""></div>

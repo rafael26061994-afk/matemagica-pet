@@ -779,7 +779,7 @@ body.dark-mode .mm-cycle-progress {
   gap: 12px;
   margin-bottom: 12px;
 }
-.teacher-panel-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.12); }
+.teacher-panel-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(17, 24, 39, 0.12); }
 .teacher-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .teacher-help { font-size: 0.9em; opacity: 0.9; margin-top: 8px; }
 
@@ -851,6 +851,82 @@ body.low-stimulus #confetti-container { display: none !important; }
 }
 
 /* Perfil do estudante (modal reaproveitando painel) */
+.teacher-panel .tp-input,
+.teacher-panel .tp-label {
+    font-family: inherit;
+}
+.teacher-panel .tp-input {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(17, 24, 39, 0.18);
+    background: #fff;
+    color: #111827;
+}
+.teacher-panel .tp-label {
+    display: block;
+    font-weight: 700;
+    margin-top: 0;
+    margin-bottom: 6px;
+    color: rgba(17, 24, 39, 0.85);
+}
+
+.tp-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+}
+.tp-field { min-width: 0; }
+
+/* Prévia do Relatório (top 30) */
+.tp-preview { margin-top: 12px; }
+.tp-preview-title { margin: 8px 0; }
+.tp-preview-table-wrap {
+    max-height: 260px;
+    overflow: auto;
+    border: 1px solid rgba(17, 24, 39, 0.12);
+    border-radius: 12px;
+    background: #ffffff;
+}
+.tp-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.tp-table th, .tp-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(17, 24, 39, 0.08);
+    text-align: left;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+.tp-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: rgba(17, 24, 39, 0.04);
+    font-weight: 800;
+}
+.tp-empty {
+    padding: 14px 10px;
+    opacity: 0.85;
+}
+.tp-pill {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(17, 24, 39, 0.12);
+    background: rgba(17, 24, 39, 0.04);
+    font-weight: 800;
+    font-size: 11px;
+}
+.tp-pill-ok { background: rgba(16, 185, 129, 0.10); border-color: rgba(16, 185, 129, 0.28); }
+.tp-pill-warn { background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.30); }
+
+@media (max-width: 520px) {
+    .tp-filter-grid { grid-template-columns: 1fr; }
+}
+
 .profile-panel .tp-input {
     width: 100%;
     padding: 10px 12px;
@@ -1164,20 +1240,559 @@ html.dark body .answer-option{
 }
 .feedback-close:active{ transform:scale(0.96); }
 
+
 /* =========================================================================
-   10. Rodapé legal (aparece apenas ao final da rolagem)
+   NÍVEL 1 — Profissionalização (App Shell, Acessibilidade e Estados)
+   - Regras adicionadas no final para reduzir risco de quebrar o layout atual
    ========================================================================= */
 
-.pet-legal-footer{
-    margin-top: 28px;
-    padding-top: 14px;
-    border-top: 1px solid var(--cor-borda-clara);
-    text-align: center;
-    font-size: 0.75em;
-    line-height: 1.35;
-    color: var(--cor-texto-principal);
-    opacity: 0.78;
+body {
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
-.pet-legal-footer small{
-    display: block;
+
+/* Skip link (teclado/acessibilidade) */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--cor-card-claro);
+  border: 1px solid var(--cor-borda-clara);
+  box-shadow: var(--sombra-card);
+  z-index: 10001;
+}
+.skip-link:focus {
+  left: 10px;
+}
+
+/* Aviso quando JavaScript estiver desligado */
+.noscript-warning {
+  background: var(--cor-card-claro);
+  border: 1px solid var(--cor-borda-clara);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 12px auto;
+  max-width: 600px;
+  box-shadow: var(--sombra-card);
+}
+
+/* Foco visível consistente */
+:focus-visible {
+  outline: 3px solid rgba(0, 123, 255, 0.55);
+  outline-offset: 3px;
+}
+
+/* Melhor experiência em toque */
+button, a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Toast (avisos de sistema: offline, atualização, etc.) */
+#toast-root {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, calc(100% - 24px));
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  background: var(--cor-card-claro);
+  border: 1px solid var(--cor-borda-clara);
+  border-radius: 14px;
+  box-shadow: var(--sombra-card);
+  padding: 12px 14px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.toast .toast-body {
+  flex: 1;
+  font-size: 0.95rem;
+}
+.toast .toast-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.toast .toast-btn {
+  border: 1px solid var(--cor-borda-clara);
+  background: transparent;
+  color: var(--cor-texto-principal);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.toast .toast-btn.primary {
+  background: var(--cor-primaria);
+  border-color: var(--cor-primaria);
+  color: #fff;
+}
+.toast.info { border-left: 6px solid var(--cor-primaria); }
+.toast.success { border-left: 6px solid var(--cor-sucesso); }
+.toast.warn { border-left: 6px solid var(--cor-incentivo); }
+.toast.error { border-left: 6px solid var(--cor-erro); }
+
+/* Modal (confirmações padronizadas) */
+#modal-root.hidden { display: none; }
+#modal-root {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 10002;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.modal {
+  width: min(560px, 100%);
+  background: var(--cor-card-claro);
+  border: 1px solid var(--cor-borda-clara);
+  border-radius: 16px;
+  box-shadow: var(--sombra-card);
+  padding: 18px 18px 14px;
+}
+.modal h2 {
+  font-size: 1.15rem;
+  margin-bottom: 8px;
+}
+.modal p {
+  opacity: 0.95;
+}
+
+.modal-content ul{
+  margin: 10px 0 0 18px;
+  padding: 0;
+}
+.modal-content li{
+  margin: 6px 0;
+}
+.pet-modal-kv{
+  display:flex;
+  justify-content:space-between;
+  gap: 14px;
+  margin: 8px 0;
+}
+.pet-modal-kv span{
+  opacity: 0.9;
+}
+.pet-modal-kv strong{
+  font-weight: 800;
+}
+.pet-muted{
+  opacity: 0.9;
+  font-size: 0.95rem;
+}
+.pet-pill{
+  display:inline-block;
+  border: 1px solid var(--cor-borda-clara);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-weight: 800;
+  font-size: 0.85rem;
+  margin: 6px 0 2px;
+}
+.modal .actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.modal .modal-btn {
+  border: 1px solid var(--cor-borda-clara);
+  background: transparent;
+  color: var(--cor-texto-principal);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.modal .modal-btn.primary {
+  background: var(--cor-primaria);
+  border-color: var(--cor-primaria);
+  color: #fff;
+}
+.modal .modal-btn.danger {
+  background: var(--cor-erro);
+  border-color: var(--cor-erro);
+  color: #fff;
+}
+
+/* Reduz animações para quem precisa */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+
+/* =========================================================================
+   Rodapé legal (aparece apenas ao final da rolagem)
+   ========================================================================= */
+.pet-legal-footer{
+  margin-top: 28px;
+  padding-top: 14px;
+  border-top: 1px solid var(--cor-borda-clara);
+  text-align: center;
+  font-size: 0.75em;
+  line-height: 1.35;
+  color: var(--cor-texto-principal);
+  opacity: 0.78;
+}
+.pet-legal-footer small{ display: block; }
+
+
+/* =========================================================================
+   NÍVEL 1 (extra) — Atualização disponível na tela
+   ========================================================================= */
+.sw-update-banner.hidden{ display:none; }
+.sw-update-banner{
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 10000;
+  width: min(420px, calc(100% - 24px));
+}
+.sw-update-inner{
+  background: var(--cor-card-claro);
+  border: 1px solid var(--cor-borda-clara);
+  border-radius: 14px;
+  box-shadow: var(--sombra-card);
+  padding: 12px 12px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.sw-update-text{
+  flex: 1;
+  font-size: 0.92rem;
+  line-height: 1.25;
+}
+.sw-update-text strong{ display:block; font-size: 0.98rem; }
+.sw-update-sub{
+  display:block;
+  opacity: 0.9;
+  margin-top: 4px;
+}
+.sw-update-actions{
+  display:flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.sw-update-btn{
+  border: 1px solid var(--cor-borda-clara);
+  background: transparent;
+  color: var(--cor-texto-principal);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.sw-update-btn.primary{
+  background: var(--cor-primaria);
+  border-color: var(--cor-primaria);
+  color: #fff;
+}
+
+@media (max-width: 520px){
+  .sw-update-banner{
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: calc(100% - 24px);
+  }
+  .sw-update-inner{ align-items: flex-start; }
+}
+
+/* =========================================================================
+   NÍVEL 1 (extra) — Sobre & Versão (Home)
+   ========================================================================= */
+.about-mini{
+  margin: 10px auto 0;
+  width: min(560px, 100%);
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.about-mini .btn-secondary{
+  border-radius: 12px;
+}
+.app-version-label{
+  text-align:center;
+  font-size: 0.82rem;
+  opacity: 0.85;
+  margin-top: 8px;
+}
+
+
+/* =========================================================================
+   Prioridade 3 — Sequência + Conquistas (Home)
+   ========================================================================= */
+.pet-progress-mini{
+  margin: 10px auto 0;
+  width: min(560px, 100%);
+  display:flex;
+  justify-content:center;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.pet-streak-chip{
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--cor-borda-clara);
+  background: var(--cor-fundo-card);
+  color: var(--cor-texto-principal);
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+.pet-streak-chip:focus-visible{
+  outline: 3px solid rgba(0,123,255,0.35);
+  outline-offset: 2px;
+}
+.pet-summary-streak{
+  margin-top: 10px;
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+
+.pet-divider{
+  height: 1px;
+  width: 100%;
+  background: rgba(0,0,0,0.10);
+  margin: 12px 0;
+}
+
+.pet-badge-grid{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+@media (min-width: 560px){
+  .pet-badge-grid{ grid-template-columns: 1fr 1fr; }
+}
+.pet-badge{
+  border: 1px solid var(--cor-borda-clara);
+  background: var(--cor-fundo-card);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+.pet-badge.unlocked{
+  border-color: rgba(40,167,69,0.35);
+}
+.pet-badge-title{
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+.pet-badge-desc{
+  font-size: 0.9rem;
+  opacity: 0.92;
+  line-height: 1.25rem;
+}
+.pet-badge-when{
+  opacity: 0.85;
+}
+
+/* =========================================================================
+   Prioridade 3+ — Recompensa/Conquistas na Tela de Resultado
+   ========================================================================= */
+.pet-session-rewards{
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0,0,0,0.10);
+}
+.pet-session-rewards-title{
+  text-align: center;
+  font-weight: 900;
+  margin-bottom: 8px;
+}
+.pet-session-rewards-subtitle{
+  text-align:center;
+  font-weight: 800;
+  margin: 10px 0 8px;
+  opacity: 0.95;
+}
+.pet-reward-row{
+  display:flex;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.pet-pill-chip{
+  padding: 7px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--cor-borda-clara);
+  background: var(--cor-fundo-card);
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+.pet-badge-chips{
+  display:flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.pet-badge-chip{
+  padding: 7px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(40,167,69,0.35);
+  background: rgba(40,167,69,0.07);
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+.pet-badge-chip-new{
+  box-shadow: 0 6px 18px rgba(0,0,0,0.10);
+  transform: translateZ(0);
+}
+
+.pet-unlocked-now{
+  display:flex;
+  justify-content:center;
+  margin: 6px 0 8px;
+}
+.pet-unlocked-now-tag{
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(40,167,69,0.35);
+  background: rgba(40,167,69,0.10);
+  font-weight: 900;
+  font-size: 0.88rem;
+}
+
+@media (prefers-reduced-motion: no-preference){
+  @keyframes petPulseNewBadge{
+    0%{ transform: scale(1); }
+    50%{ transform: scale(1.03); }
+    100%{ transform: scale(1); }
+  }
+  .pet-badge-chip-new{
+    animation: petPulseNewBadge 900ms ease-in-out 2;
+  }
+}
+.pet-session-muted{
+  text-align: center;
+  font-size: 0.85rem;
+  opacity: 0.85;
+  margin-top: 8px;
+}
+
+
+
+/* =========================================================================
+   ACESSIBILIDADE EXTRA (P0/P1) — sem mudar layout base
+   ========================================================================= */
+
+/* Visually hidden (screen readers) */
+.sr-only{
+  position:absolute !important;
+  width:1px !important;
+  height:1px !important;
+  padding:0 !important;
+  margin:-1px !important;
+  overflow:hidden !important;
+  clip:rect(0,0,0,0) !important;
+  white-space:nowrap !important;
+  border:0 !important;
+}
+
+/* Foco visível forte só quando navegação por teclado */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible{
+  outline: 3px solid var(--cor-primaria);
+  outline-offset: 3px;
+}
+
+/* Melhor toque no mobile (reduz delay e cliques “fantasma”) */
+button, .btn-action, .setting-btn, .mode-btn, .layout-btn{
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Evita camadas decorativas bloquearem cliques */
+#confetti-container{ pointer-events:none; }
+
+
+/* Modo Dislexia (ativado via classe no body) */
+body.dyslexia-mode{
+  letter-spacing: 0.035em;
+  word-spacing: 0.06em;
+}
+body.dyslexia-mode .info-card,
+body.dyslexia-mode .question-area,
+body.dyslexia-mode #question-text,
+body.dyslexia-mode .feedback-message,
+body.dyslexia-mode .answer-text,
+body.dyslexia-mode p,
+body.dyslexia-mode li{
+  line-height: 1.55;
+}
+
+/* Modo Calmo: reduz estímulos (sem mudar layout) */
+body.calm-mode #confetti-container{ display:none !important; }
+
+/* Preferência do sistema: mais contraste */
+@media (prefers-contrast: more){
+  .info-card, .setting-btn, .mode-btn, .layout-btn, .btn-action, .btn-primary, .btn-secondary{
+    border-width: 2px !important;
+  }
+  button:focus-visible, a:focus-visible, [role="button"]:focus-visible{
+    outline-width: 4px;
+  }
+}
+
+/* Em telas pequenas, evita sobreposição de botões na barra (mantém visual no desktop) */
+@media (max-width: 560px){
+  .settings-bar, .accessibility-bar{
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+  .layout-toggle, .modes-toggle{
+    width: 100%;
+    justify-content: center;
+  }
+  .access-title, .layout-label{
+    width: 100%;
+    text-align: center;
+  }
+}
+
+/* Alvo de toque mínimo no mobile (sem mexer no desktop) */
+@media (pointer: coarse){
+  .setting-btn, .mode-btn, .layout-btn{
+    min-height: 44px;
+  }
+}
+
+
+/* VLibras: evita camada do plugin capturar cliques/toques do app (mantém apenas o botão clicável) */
+.vw-plugin-wrapper,
+.vw-text,
+.vw-plugin-top-wrapper,
+.vw-plugin-bottom-wrapper{
+  pointer-events: none !important;
+}
+.vw-access-button,
+.vw-access-button *{
+  pointer-events: auto !important;
 }
