@@ -6113,7 +6113,11 @@ const PET_LEVEL1_UI = (() => {
         applyAriaToScreens,
         watchScreenState
     };
-})();
+})()
+
+// Disponibiliza utilitários de UI no escopo global (modais/toasts)
+try { window.PET_LEVEL1_UI = PET_LEVEL1_UI; } catch (_) {}
+;
 
 
 // --- INICIALIZAÇÃO DO DOCUMENTO ---
@@ -6208,7 +6212,7 @@ function initTutorialVideo() {
           </div>
         `;
 
-        const modalCtl = (window.PET_LEVEL1_UI && typeof PET_LEVEL1_UI.openModal === 'function')
+        const modalCtl = (typeof PET_LEVEL1_UI !== 'undefined' && PET_LEVEL1_UI && typeof PET_LEVEL1_UI.openModal === 'function')
             ? PET_LEVEL1_UI.openModal({
                 title: '🎥 Vídeo: como usar o PET',
                 html,

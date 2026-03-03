@@ -1,6 +1,6 @@
 /* Matemágica Duo - Service Worker (Offline) */
 // Incrementar sempre que houver mudanças para forçar atualização do cache
-const CACHE_NAME = 'pet-tabuada-v1-11-1-video';
+const CACHE_NAME = 'pet-tabuada-v1-11-3-video';
 const ASSETS = [
   '.',
   './index.html',
